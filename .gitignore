@@ -1,0 +1,8 @@
+bin/
+obj/
+.vs/
+*.user
+tools/extracted/
+tools/*.zip
+tools/ffmpeg/ffmpeg.exe
+tools/smoketest/

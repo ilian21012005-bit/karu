@@ -3,6 +3,9 @@
 Replay des N dernières minutes (défaut 5 min) pour Windows, pensé pour Valorant.
 Encodeur **NVIDIA NVENC** : la puce dédiée travaille, le jeu n’est presque pas touché.
 
+Branche **`light`** : version ultra légère (réglages + F9 uniquement).  
+Branche **`main`** : bibliothèque de clips + highlights auto (OCR killfeed 3k / 4k / ace).
+
 ## Lancer
 
 1. GPU NVIDIA + drivers à jour
@@ -10,11 +13,13 @@ Encodeur **NVIDIA NVENC** : la puce dédiée travaille, le jeu n’est presque p
 3. Autoriser le micro Windows si tu veux ta voix dans les clips
 4. Démarre Clip Buffer **avant** la partie
 5. Appuie sur **F9** (modifiable) pour sauver le buffer
+6. Onglet **Clips** : voir / lire / taguer / favoris
+7. Onglet **Réglages** → Highlights : pseudo + calibrer le killfeed + cases 3k / 4k / Ace
 
 Le programme se met dans la barre d’état. Fermer la fenêtre le laisse tourner ; **Quitter** depuis l’icône l’arrête vraiment.
 
 Réglages persistés dans `%AppData%\ClipBuffer\config.json`.
-Clips par défaut dans `Vidéos\ClipBuffer`.
+Clips par défaut dans `Vidéos\ClipBuffer` (sidecar `.clip.json` + miniature `.jpg`).
 Buffer temporaire dans `%LocalAppData%\ClipBuffer\buffer`.
 
 ## Build

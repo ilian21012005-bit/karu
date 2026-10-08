@@ -13,6 +13,10 @@ public partial class App : System.Windows.Application
     private TrayService? _tray;
     private GlobalHotkeyService? _hotkey;
     private ReplayBufferService? _buffer;
+    private ThumbnailService? _thumbnails;
+    private KillfeedMonitor? _killfeed;
+    private readonly ClipLibrary _library = new();
+    private ClipTag _pendingTag = ClipTag.Manual;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -47,11 +51,12 @@ public partial class App : System.Windows.Application
 
         try
         {
-            System.Diagnostics.Process.GetCurrentProcess().PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal;
+            System.Diagnostics.Process.GetCurrentProcess().PriorityClass =
+                System.Diagnostics.ProcessPriorityClass.BelowNormal;
         }
         catch
         {
-            // ignore if the OS refuses
+            // ignore
         }
 
         _config = ConfigStore.Load(ConfigStore.DefaultPath);
@@ -83,6 +88,8 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        _thumbnails = new ThumbnailService(ffmpeg);
+
         var segmentDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ClipBuffer",
@@ -91,16 +98,21 @@ public partial class App : System.Windows.Application
         _buffer = new ReplayBufferService(ffmpeg, segmentDir);
         _buffer.SetBufferSeconds(_config.BufferSeconds);
         _buffer.StatusChanged += () => Dispatcher.BeginInvoke(() => _window?.SetStatus(_buffer!.Status));
-        _buffer.ClipSaved += path => Dispatcher.BeginInvoke(() =>
-        {
-            _window?.SetStatus("Buffer actif");
-            _tray?.ShowBalloon("Clip sauvé", Path.GetFileName(path));
-        });
+        _buffer.ClipSaved += path => Dispatcher.BeginInvoke(() => OnClipSaved(path));
         _buffer.SaveFailed += message => Dispatcher.BeginInvoke(() =>
         {
             _window?.SetStatus(message);
             _tray?.ShowBalloon("Clip Buffer", message);
         });
+
+        _killfeed = new KillfeedMonitor();
+        _killfeed.ApplyConfig(_config);
+        _killfeed.HighlightTriggered += tag =>
+        {
+            _pendingTag = tag;
+            _ = SaveClipAsync(tag);
+        };
+        _killfeed.Start();
 
         try
         {
@@ -122,16 +134,48 @@ public partial class App : System.Windows.Application
                 ? chord
                 : HotkeyParser.Parse(AppConfig.DefaultHotkey)
         };
-        _hotkey.Triggered += () => _ = SaveClipAsync();
+        _hotkey.Triggered += () =>
+        {
+            _pendingTag = ClipTag.Manual;
+            _ = SaveClipAsync(ClipTag.Manual);
+        };
         _hotkey.Start();
         AppLog.Write("hotkey installed " + HotkeyParser.ToDisplay(_hotkey.Chord));
 
         _window.Show();
     }
 
+    private void OnClipSaved(string path)
+    {
+        try
+        {
+            _library.Register(path, _pendingTag);
+            _pendingTag = ClipTag.Manual;
+            var videoPath = path;
+            _ = Task.Run(async () =>
+            {
+                if (_thumbnails is not null)
+                {
+                    await _thumbnails.GenerateAsync(videoPath);
+                }
+
+                _ = Dispatcher.BeginInvoke(() => _window?.RefreshClips());
+            });
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("metadata: " + ex.Message);
+        }
+
+        _window?.SetStatus("Buffer actif");
+        _window?.RefreshClips();
+        _tray?.ShowBalloon("Clip sauvé", Path.GetFileName(path));
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         _hotkey?.Dispose();
+        _killfeed?.Dispose();
         _buffer?.Dispose();
         _tray?.Dispose();
         _mutex?.Dispose();
@@ -144,19 +188,21 @@ public partial class App : System.Windows.Application
         ConfigStore.Save(ConfigStore.DefaultPath, _config);
         Directory.CreateDirectory(_config.SaveDirectory);
         _buffer?.SetBufferSeconds(_config.BufferSeconds);
+        _killfeed?.ApplyConfig(_config);
         if (_hotkey is not null && HotkeyParser.TryParse(_config.Hotkey, out var chord))
         {
             _hotkey.Chord = chord;
         }
     }
 
-    private async Task SaveClipAsync()
+    private async Task SaveClipAsync(ClipTag tag)
     {
         if (_buffer is null)
         {
             return;
         }
 
+        _pendingTag = tag;
         await _buffer.SaveClipAsync(_config.SaveDirectory);
     }
 
@@ -170,6 +216,7 @@ public partial class App : System.Windows.Application
         _window.Show();
         _window.WindowState = WindowState.Normal;
         _window.Activate();
+        _window.RefreshClips();
     }
 
     private void ExitApp()

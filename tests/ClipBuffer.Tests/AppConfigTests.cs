@@ -36,7 +36,12 @@ public class AppConfigTests
         {
             BufferSeconds = 120,
             Hotkey = "Ctrl+F8",
-            SaveDirectory = @"D:\Clips"
+            SaveDirectory = @"D:\Clips",
+            AutoTriple = true,
+            AutoAce = true,
+            PlayerName = "ilian",
+            HighlightCooldownSeconds = 20,
+            HighlightsEnabled = true
         };
 
         ConfigStore.Save(path, original);
@@ -45,6 +50,11 @@ public class AppConfigTests
         Assert.Equal(120, loaded.BufferSeconds);
         Assert.Equal("Ctrl+F8", loaded.Hotkey);
         Assert.Equal(@"D:\Clips", loaded.SaveDirectory);
+        Assert.True(loaded.AutoTriple);
+        Assert.True(loaded.AutoAce);
+        Assert.Equal("ilian", loaded.PlayerName);
+        Assert.Equal(20, loaded.HighlightCooldownSeconds);
+        Assert.True(loaded.HighlightsEnabled);
     }
 
     [Fact]

@@ -20,7 +20,10 @@ public static class KillfeedLineParser
         // Armes / UI OCR — pas des pseudos victimes
         "VANDAL", "PHANTOM", "SPECTRE", "OPERATOR", "MARSHAL", "SHERIFF", "GHOST", "CLASSIC",
         "FRENZY", "SHORTY", "BUCKY", "JUDGE", "ARES", "ODIN", "STINGER", "OUTLAW", "BULLDOG",
-        "HEADSHOT", "HS"
+        "HEADSHOT", "HS",
+        // Écran mort / combat report Valorant
+        "KILLED", "KILLEO", "KILL", "BY", "OUTGOING", "INCOMING", "COMBAT", "REPORT",
+        "UNSTOPPABLE", "UNSTOPPABL", "ASSIST", "DAMAGE"
     };
 
     /// <summary>
@@ -61,8 +64,9 @@ public static class KillfeedLineParser
             return new KillfeedEvent(KillfeedEventKind.LocalKill, cleaned, "k:" + victim);
         }
 
-        // Pseudo à la fin (+ killer devant) → mort
-        if (after.Length == 0 && before.Length > 0)
+        // Pseudo à la fin (+ killer devant) → mort (préfixe ≥2 tokens pour éviter OCR inversé)
+        if (after.Length == 0 && before.Length > 0
+            && before.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 2)
         {
             return new KillfeedEvent(KillfeedEventKind.LocalDeath, cleaned, "d:" + NormalizeToken(before));
         }
@@ -89,6 +93,13 @@ public static class KillfeedLineParser
         {
             var cleaned = CollapseSpaces(chunk);
             if (cleaned.Length == 0)
+            {
+                continue;
+            }
+
+            // Écran mort / combat report — pas du killfeed
+            if (Regex.IsMatch(cleaned, @"\b(?:KILLED|KILLEO)\s+BY\b|\bCOMBAT\s+REPORT\b|\bOUTGOING\b|\bINCOMING\b",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             {
                 continue;
             }
@@ -128,7 +139,9 @@ public static class KillfeedLineParser
                     continue;
                 }
 
-                if (after.Length == 0 && before.Length > 0 && !IsPlayerNameFragment(before, player))
+                // Mort : besoin d'un vrai préfixe (pseudo ± arme). 1 seul token = souvent OCR inversé.
+                if (after.Length == 0 && before.Length > 0 && !IsPlayerNameFragment(before, player)
+                    && before.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 2)
                 {
                     var raw = CollapseSpaces(before + " " + player);
                     results.Add(new KillfeedEvent(KillfeedEventKind.LocalDeath, raw, "d:" + NormalizeToken(before)));
@@ -411,6 +424,7 @@ public sealed class KillStreakTracker
         if (evt.Kind == KillfeedEventKind.LocalDeath)
         {
             Streak = 0;
+            _seenKeys.Clear();
             _firstKillUtc = DateTime.MinValue;
             return;
         }

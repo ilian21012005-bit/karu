@@ -56,6 +56,16 @@ public class KillStreakTrackerTests
     }
 
     [Fact]
+    public void ExtractEvents_ignores_combat_report_death_screen()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "Rick Grimes KILLED BY REYNA Reyna OUTGOING COMBAT REPORT 230 Unstoppable INCOMING",
+            "Rick Grimes");
+
+        Assert.Empty(events);
+    }
+
+    [Fact]
     public void ExtractEvents_quad_clip_ocr_reaches_four_kills()
     {
         var frames = new[]

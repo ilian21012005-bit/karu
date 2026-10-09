@@ -6,9 +6,62 @@ public class KillStreakTrackerTests
     [InlineData("ilian  Vandal  enemy1", "ilian", KillfeedEventKind.LocalKill)]
     [InlineData("enemy1  Phantom  ilian", "ilian", KillfeedEventKind.LocalDeath)]
     [InlineData("teammate  Operator  foe", "ilian", KillfeedEventKind.None)]
+    [InlineData("pastelghost Noot Noot Rick Grimes Noot Noot im owned Clove", "Rick Grimes", KillfeedEventKind.None)]
     public void Parser_classifies_killer_and_victim(string line, string player, KillfeedEventKind expected)
     {
         Assert.Equal(expected, KillfeedLineParser.Parse(line, player).Kind);
+    }
+
+    [Fact]
+    public void ExtractEvents_splits_glued_ocr_into_distinct_kills()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "Rick Grimes Clove Rick Grimes SekiR0",
+            "Rick Grimes");
+
+        Assert.Equal(2, events.Count(e => e.Kind == KillfeedEventKind.LocalKill));
+        Assert.Contains(events, e => e.StableKey == "k:clove");
+        Assert.Contains(events, e => e.StableKey == "k:sekiro" || e.StableKey == "k:sekir0");
+    }
+
+    [Fact]
+    public void ExtractEvents_ignores_name_stuck_in_middle_of_blob()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "pastelghost Noot Noot Rick Grimes Noot Noot im owned Clove",
+            "Rick Grimes");
+
+        Assert.Empty(events);
+    }
+
+    [Fact]
+    public void Medal_ocr_dump_does_not_overcount_to_triple()
+    {
+        var frames = new[]
+        {
+            "pastelghost Reyna",
+            "pastelghost Noot Noot Rick Grimes Noot Noot im owned Clove",
+            "Rick Grimes Clove",
+            "Rick Grimes Rick Grimes Clove SekiR0",
+            "Rick Grimes Rick Grimes Clove A. SekiR0",
+            "Rick Grimes Rick Grimes Clove",
+            "Rick Grimes sub catboy pastelghost",
+        };
+
+        var tracker = new KillStreakTracker();
+        var hits = new List<int>();
+        tracker.ThresholdReached += hits.Add;
+        var now = DateTime.UtcNow;
+
+        for (var i = 0; i < frames.Length; i++)
+        {
+            tracker.ObserveOcrText(frames[i], "Rick Grimes", now.AddSeconds(i));
+        }
+
+        // Avant : Triple/Quad/Ace fantômes sur les mêmes 2 victimes OCR collées.
+        Assert.InRange(tracker.Streak, 2, 3);
+        Assert.DoesNotContain(4, hits);
+        Assert.DoesNotContain(5, hits);
     }
 
     [Fact]
@@ -46,11 +99,45 @@ public class KillStreakTrackerTests
         var hits = new List<int>();
         tracker.ThresholdReached += hits.Add;
         var now = DateTime.UtcNow;
-        tracker.ObserveLine("me  Vandal  a", "me", now);
-        tracker.ObserveLine("me  Vandal  a", "me", now.AddSeconds(1));
-        tracker.ObserveLine("me  Vandal  b", "me", now.AddSeconds(2));
+        tracker.ObserveLine("me  Vandal  alpha", "me", now);
+        tracker.ObserveLine("me  Vandal  alpha", "me", now.AddSeconds(1));
+        tracker.ObserveLine("me  Vandal  bravo", "me", now.AddSeconds(2));
         Assert.Equal(2, tracker.Streak);
         Assert.Empty(hits);
+    }
+
+    [Fact]
+    public void Duplicate_victim_across_ocr_frames_is_ignored()
+    {
+        var tracker = new KillStreakTracker();
+        var hits = new List<int>();
+        tracker.ThresholdReached += hits.Add;
+        var now = DateTime.UtcNow;
+
+        tracker.ObserveOcrText("Rick Grimes Clove", "Rick Grimes", now);
+        tracker.ObserveOcrText("Rick Grimes Rick Grimes Clove SekiR0", "Rick Grimes", now.AddSeconds(1));
+        tracker.ObserveOcrText("Rick Grimes Clove", "Rick Grimes", now.AddSeconds(2));
+
+        // clove une fois + sekiro une fois
+        Assert.Equal(2, tracker.Streak);
+        Assert.Empty(hits);
+    }
+
+    [Fact]
+    public void Ocr_blob_can_reach_triple_with_three_victims()
+    {
+        var tracker = new KillStreakTracker();
+        var hits = new List<int>();
+        tracker.ThresholdReached += hits.Add;
+        var now = DateTime.UtcNow;
+
+        tracker.ObserveOcrText(
+            "Rick Grimes Alpha Rick Grimes Bravo Rick Grimes Charlie",
+            "Rick Grimes",
+            now);
+
+        Assert.Equal(3, tracker.Streak);
+        Assert.Equal(new[] { 3 }, hits);
     }
 
     [Fact]

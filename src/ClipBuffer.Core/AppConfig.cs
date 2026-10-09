@@ -21,6 +21,18 @@ public sealed class AppConfig
     public string PlayerName { get; set; } = "";
     public bool HighlightsEnabled { get; set; }
 
+    /// <summary>"carbon" (défaut) ou "aventurine".</summary>
+    public string Theme { get; set; } = "carbon";
+
+    /// <summary>Démarrage avec Windows (HKCU Run, sans admin).</summary>
+    public bool StartWithWindows { get; set; }
+
+    /// <summary>Suspend le buffer NVENC sur batterie (laptops).</summary>
+    public bool PauseBufferOnBattery { get; set; } = true;
+
+    /// <summary>Vérifier GitHub Releases au démarrage.</summary>
+    public bool CheckUpdatesOnStartup { get; set; } = true;
+
     /// <summary>Normalized killfeed rect (0-1 relative to primary screen).</summary>
     public double KillfeedX { get; set; } = 0.72;
     public double KillfeedY { get; set; } = 0.02;
@@ -45,8 +57,22 @@ public sealed class AppConfig
         {
             SaveDirectory = DefaultSaveDirectory();
         }
+        else
+        {
+            try
+            {
+                SaveDirectory = PathSafety.NormalizeDirectory(SaveDirectory);
+            }
+            catch
+            {
+                SaveDirectory = DefaultSaveDirectory();
+            }
+        }
 
         PlayerName = (PlayerName ?? "").Trim();
+        Theme = string.Equals(Theme, "aventurine", StringComparison.OrdinalIgnoreCase)
+            ? "aventurine"
+            : "carbon";
         KillfeedX = Math.Clamp(KillfeedX, 0, 0.95);
         KillfeedY = Math.Clamp(KillfeedY, 0, 0.95);
         KillfeedW = Math.Clamp(KillfeedW, 0.05, 1 - KillfeedX);
@@ -105,6 +131,9 @@ public static class ConfigStore
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(path, JsonSerializer.Serialize(config, JsonOptions));
+        var json = JsonSerializer.Serialize(config, JsonOptions);
+        var temp = path + ".tmp";
+        File.WriteAllText(temp, json);
+        File.Move(temp, path, overwrite: true);
     }
 }

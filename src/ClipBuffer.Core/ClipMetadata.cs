@@ -15,7 +15,7 @@ public sealed class ClipMetadata
     public string DisplayName => Path.GetFileNameWithoutExtension(VideoPath);
 
     public static string SidecarPathFor(string videoPath) =>
-        Path.ChangeExtension(videoPath, ".clip.json");
+        ClipArtifactPaths.SidecarPathFor(videoPath);
 }
 
 public static class ClipMetadataStore
@@ -29,7 +29,15 @@ public static class ClipMetadataStore
 
     public static ClipMetadata LoadOrCreate(string videoPath)
     {
-        var sidecar = ClipMetadata.SidecarPathFor(videoPath);
+        if (File.Exists(ClipArtifactPaths.LegacySidecarPathFor(videoPath)) ||
+            File.Exists(ClipArtifactPaths.LegacyThumbnailPathFor(videoPath)))
+        {
+            ClipArtifactPaths.MigrateLegacyIfNeeded(videoPath);
+        }
+
+        var sidecar = ClipArtifactPaths.ResolveExistingSidecar(videoPath)
+                      ?? ClipArtifactPaths.SidecarPathFor(videoPath);
+
         if (File.Exists(sidecar))
         {
             try
@@ -39,6 +47,12 @@ public static class ClipMetadataStore
                 if (loaded is not null)
                 {
                     loaded.VideoPath = videoPath;
+                    var thumb = ClipArtifactPaths.ResolveExistingThumbnail(videoPath);
+                    if (thumb is not null)
+                    {
+                        loaded.ThumbnailPath = thumb;
+                    }
+
                     return loaded;
                 }
             }
@@ -53,7 +67,8 @@ public static class ClipMetadataStore
         {
             VideoPath = videoPath,
             Tag = ClipTag.Manual,
-            CreatedAt = info.Exists ? info.CreationTime : DateTime.Now
+            CreatedAt = info.Exists ? info.CreationTime : DateTime.Now,
+            ThumbnailPath = ClipArtifactPaths.ResolveExistingThumbnail(videoPath)
         };
     }
 
@@ -64,11 +79,20 @@ public static class ClipMetadataStore
             throw new ArgumentException("VideoPath requis.", nameof(metadata));
         }
 
-        var sidecar = ClipMetadata.SidecarPathFor(metadata.VideoPath);
-        var directory = Path.GetDirectoryName(sidecar);
-        if (!string.IsNullOrEmpty(directory))
+        ClipArtifactPaths.EnsureMetaDirectory(metadata.VideoPath);
+        var sidecar = ClipArtifactPaths.SidecarPathFor(metadata.VideoPath);
+
+        // Toujours pointer la miniature vers le chemin moderne si le fichier existe.
+        var thumb = ClipArtifactPaths.ResolveExistingThumbnail(metadata.VideoPath);
+        if (thumb is not null)
         {
-            Directory.CreateDirectory(directory);
+            metadata.ThumbnailPath = ClipArtifactPaths.ThumbnailPathFor(metadata.VideoPath);
+            if (!string.Equals(thumb, metadata.ThumbnailPath, StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(thumb))
+            {
+                ClipArtifactPaths.MigrateLegacyIfNeeded(metadata.VideoPath);
+                metadata.ThumbnailPath = ClipArtifactPaths.ThumbnailPathFor(metadata.VideoPath);
+            }
         }
 
         File.WriteAllText(sidecar, JsonSerializer.Serialize(metadata, JsonOptions));
@@ -76,10 +100,22 @@ public static class ClipMetadataStore
 
     public static void DeleteSidecar(string videoPath)
     {
-        var sidecar = ClipMetadata.SidecarPathFor(videoPath);
-        if (File.Exists(sidecar))
+        TryDelete(ClipArtifactPaths.SidecarPathFor(videoPath));
+        TryDelete(ClipArtifactPaths.LegacySidecarPathFor(videoPath));
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
         {
-            File.Delete(sidecar);
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // ignore
         }
     }
 }

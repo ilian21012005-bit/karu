@@ -15,4 +15,24 @@ public class ClipFileNamerTests
         var when = new DateTime(2026, 1, 2, 3, 4, 5);
         Assert.Equal("Clip_2026-01-02_03-04-05.mp4", ClipFileNamer.MakeFileName(when, gameHint: "  "));
     }
+
+    [Fact]
+    public void MakeFullPath_avoids_existing_file_names()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "karu-namer-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var when = new DateTime(2026, 3, 4, 5, 6, 7);
+            var first = ClipFileNamer.MakeFullPath(dir, when);
+            File.WriteAllText(first, "x");
+            var second = ClipFileNamer.MakeFullPath(dir, when);
+            Assert.NotEqual(first, second);
+            Assert.EndsWith("_2.mp4", second, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* ignore */ }
+        }
+    }
 }

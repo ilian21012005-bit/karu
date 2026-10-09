@@ -12,8 +12,11 @@ public static class FfmpegLocator
         {
             Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg.exe"),
             Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "tools", "ffmpeg", "ffmpeg.exe")),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipBuffer", "ffmpeg", "ffmpeg.exe")
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ClipBuffer",
+                "ffmpeg",
+                "ffmpeg.exe")
         };
 
         var pathDirs = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator);

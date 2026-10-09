@@ -75,7 +75,7 @@ public static class HotkeyParser
         }
 
         chord = new HotkeyChord(ctrl, alt, shift, key);
-        return true;
+        return IsSupportedByRegisterHotKey(chord);
     }
 
     public static string ToDisplay(HotkeyChord chord)
@@ -94,6 +94,32 @@ public static class HotkeyParser
         chord.Shift == shift &&
         string.Equals(chord.Key, NormalizeKey(key), StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Touches supportées par RegisterHotKey (F1–F24, A–Z, 0–9).</summary>
+    public static bool IsSupportedByRegisterHotKey(HotkeyChord chord)
+    {
+        var key = chord.Key;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return false;
+        }
+
+        if (key.Length >= 2 &&
+            (key[0] == 'F' || key[0] == 'f') &&
+            int.TryParse(key[1..], out var fn) &&
+            fn is >= 1 and <= 24)
+        {
+            return true;
+        }
+
+        if (key.Length == 1)
+        {
+            var c = char.ToUpperInvariant(key[0]);
+            return c is (>= '0' and <= '9') or (>= 'A' and <= 'Z');
+        }
+
+        return false;
+    }
+
     private static string NormalizeKey(string token)
     {
         var trimmed = token.Trim();
@@ -108,6 +134,12 @@ public static class HotkeyParser
             fn is >= 1 and <= 24)
         {
             return "F" + fn;
+        }
+
+        // Refuse les tokens WPF type "Space" / "Oem*" pour RegisterHotKey.
+        if (trimmed.Length > 1)
+        {
+            return trimmed; // sera rejeté par IsSupportedByRegisterHotKey
         }
 
         return char.ToUpperInvariant(trimmed[0]) + trimmed[1..].ToLowerInvariant();

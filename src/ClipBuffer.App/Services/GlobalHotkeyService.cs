@@ -1,43 +1,66 @@
 using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using ClipBuffer.Core;
 
 namespace ClipBuffer.App.Services;
 
+/// <summary>
+/// Raccourci global via RegisterHotKey (pas de WH_KEYBOARD_LL / injection).
+/// </summary>
 public sealed class GlobalHotkeyService : IDisposable
 {
-    private const int WhKeyboardLl = 13;
-    private const int WmKeydown = 0x0100;
-    private const int WmSyskeydown = 0x0104;
-    private const int VkShift = 0x10;
-    private const int VkControl = 0x11;
-    private const int VkMenu = 0x12;
-    private const int KeyPressed = 0x8000;
+    private const int HotkeyId = 0x4B52; // 'KR'
+    private const int WmHotkey = 0x0312;
+    private const uint ModAlt = 0x0001;
+    private const uint ModControl = 0x0002;
+    private const uint ModShift = 0x0004;
+    private const uint ModNoRepeat = 0x4000;
 
-    private readonly LowLevelKeyboardProc _proc;
-    private IntPtr _hook;
+    private HwndSource? _source;
+    private bool _registered;
     private bool _disposed;
+    private HotkeyChord _chord = HotkeyParser.Parse(AppConfig.DefaultHotkey);
 
-    public GlobalHotkeyService()
+    public HotkeyChord Chord => _chord;
+
+    /// <summary>Change le raccourci ; en cas d'échec, conserve l'ancien.</summary>
+    public void SetChord(HotkeyChord chord)
     {
-        _proc = HookCallback;
-    }
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_source is null)
+        {
+            if (!HotkeyParser.IsSupportedByRegisterHotKey(chord))
+            {
+                throw new InvalidOperationException("Raccourci non supporté (F1–F24, A–Z, 0–9).");
+            }
 
-    public HotkeyChord Chord { get; set; } = HotkeyParser.Parse(AppConfig.DefaultHotkey);
+            _chord = chord;
+            return;
+        }
+
+        ApplyChord(chord);
+    }
 
     public event Action? Triggered;
 
     public void Start()
     {
-        if (_hook != IntPtr.Zero)
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_source is not null)
         {
             return;
         }
 
-        _hook = SetWindowsHookEx(WhKeyboardLl, _proc, GetModuleHandle(null), 0);
-        if (_hook == IntPtr.Zero)
+        var parameters = new HwndSourceParameters("KaruHotkeySink")
         {
-            throw new InvalidOperationException("Impossible d'installer le raccourci global.");
-        }
+            Width = 0,
+            Height = 0,
+            WindowStyle = 0,
+            ParentWindow = new IntPtr(-3) // HWND_MESSAGE
+        };
+        _source = new HwndSource(parameters);
+        _source.AddHook(WndProc);
+        ApplyChord(_chord);
     }
 
     public void Dispose()
@@ -48,68 +71,113 @@ public sealed class GlobalHotkeyService : IDisposable
         }
 
         _disposed = true;
-        if (_hook != IntPtr.Zero)
+        Unregister();
+        if (_source is not null)
         {
-            UnhookWindowsHookEx(_hook);
-            _hook = IntPtr.Zero;
+            _source.RemoveHook(WndProc);
+            _source.Dispose();
+            _source = null;
         }
     }
 
-    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (nCode >= 0 && (wParam == WmKeydown || wParam == (IntPtr)WmSyskeydown))
+        if (msg == WmHotkey && wParam.ToInt32() == HotkeyId)
         {
-            var vk = Marshal.ReadInt32(lParam);
-            var keyName = VkToKeyName(vk);
-            var ctrl = (GetKeyState(VkControl) & KeyPressed) != 0;
-            var alt = (GetKeyState(VkMenu) & KeyPressed) != 0;
-            var shift = (GetKeyState(VkShift) & KeyPressed) != 0;
+            Triggered?.Invoke();
+            handled = true;
+        }
 
-            if (keyName is not null && HotkeyParser.Matches(Chord, ctrl, alt, shift, keyName))
+        return IntPtr.Zero;
+    }
+
+    private void ApplyChord(HotkeyChord chord)
+    {
+        if (_source is null)
+        {
+            _chord = chord;
+            return;
+        }
+
+        if (!TryMap(chord, out var modifiers, out var vk))
+        {
+            throw new InvalidOperationException("Raccourci non supporté (F1–F24, A–Z, 0–9).");
+        }
+
+        var previous = _chord;
+        Unregister();
+
+        if (!RegisterHotKey(_source.Handle, HotkeyId, modifiers, vk))
+        {
+            var err = Marshal.GetLastWin32Error();
+            // Restaure l'ancien raccourci.
+            if (TryMap(previous, out var prevMod, out var prevVk))
             {
-                Triggered?.Invoke();
-                return (IntPtr)1;
+                if (RegisterHotKey(_source.Handle, HotkeyId, prevMod, prevVk))
+                {
+                    _registered = true;
+                    _chord = previous;
+                }
             }
+
+            throw new InvalidOperationException(
+                err == 1409
+                    ? "Ce raccourci est déjà utilisé par une autre application."
+                    : "Impossible d'enregistrer le raccourci global.");
         }
 
-        return CallNextHookEx(_hook, nCode, wParam, lParam);
+        _chord = chord;
+        _registered = true;
     }
 
-    private static string? VkToKeyName(int vk)
+    private void Unregister()
     {
-        if (vk is >= 0x70 and <= 0x87)
+        if (_registered && _source is not null)
         {
-            return "F" + (vk - 0x70 + 1);
+            UnregisterHotKey(_source.Handle, HotkeyId);
+            _registered = false;
         }
-
-        if (vk is >= 0x30 and <= 0x39)
-        {
-            return ((char)vk).ToString();
-        }
-
-        if (vk is >= 0x41 and <= 0x5A)
-        {
-            return ((char)vk).ToString();
-        }
-
-        return null;
     }
 
-    private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+    internal static bool TryMap(HotkeyChord chord, out uint modifiers, out uint vk)
+    {
+        modifiers = ModNoRepeat;
+        if (chord.Ctrl) modifiers |= ModControl;
+        if (chord.Alt) modifiers |= ModAlt;
+        if (chord.Shift) modifiers |= ModShift;
+
+        vk = KeyToVk(chord.Key);
+        return vk != 0;
+    }
+
+    private static uint KeyToVk(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return 0;
+        }
+
+        if (key.Length >= 2 &&
+            (key[0] == 'F' || key[0] == 'f') &&
+            int.TryParse(key[1..], out var fn) &&
+            fn is >= 1 and <= 24)
+        {
+            return (uint)(0x70 + fn - 1);
+        }
+
+        if (key.Length == 1)
+        {
+            var c = char.ToUpperInvariant(key[0]);
+            if (c is >= '0' and <= '9') return c;
+            if (c is >= 'A' and <= 'Z') return c;
+        }
+
+        return 0;
+    }
 
     [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
 
     [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern IntPtr GetModuleHandle(string? lpModuleName);
-
-    [DllImport("user32.dll")]
-    private static extern short GetKeyState(int nVirtKey);
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 }

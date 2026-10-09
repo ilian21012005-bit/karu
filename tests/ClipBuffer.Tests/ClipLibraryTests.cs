@@ -62,7 +62,7 @@ public class ClipLibraryTests
             File.WriteAllBytes(video, new byte[] { 1 });
             var library = new ClipLibrary();
             library.Register(video, ClipTag.Manual);
-            library.Delete(video);
+            library.Delete(dir, video);
 
             Assert.False(File.Exists(video));
             Assert.False(File.Exists(ClipMetadata.SidecarPathFor(video)));

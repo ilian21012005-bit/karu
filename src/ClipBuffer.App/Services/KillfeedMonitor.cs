@@ -25,6 +25,7 @@ public sealed class KillfeedMonitor : IDisposable
     }
 
     public event Action<ClipTag>? HighlightTriggered;
+    public event Action<string>? StatusChanged;
 
     public void ApplyConfig(AppConfig config)
     {
@@ -33,17 +34,29 @@ public sealed class KillfeedMonitor : IDisposable
             _config = CloneConfig(config);
             _config.Clamp();
         }
+
+        // Si highlights (re)activés après un échec OCR, tenter un restart.
+        if (_config.HighlightsEnabled)
+        {
+            Start();
+        }
     }
 
     public void Start()
     {
         lock (_gate)
         {
-            if (_loop is not null)
+            if (_disposed)
             {
                 return;
             }
 
+            if (_loop is { IsCompleted: false })
+            {
+                return;
+            }
+
+            _cts?.Dispose();
             _cts = new CancellationTokenSource();
             var token = _cts.Token;
             _loop = Task.Run(() => RunLoopAsync(token), token);
@@ -63,7 +76,7 @@ public sealed class KillfeedMonitor : IDisposable
         }
 
         try { cts?.Cancel(); } catch { /* ignore */ }
-        try { loop?.Wait(1000); } catch { /* ignore */ }
+        try { loop?.Wait(2500); } catch { /* ignore */ }
         cts?.Dispose();
         _tracker.Reset();
         _lastOcr = "";
@@ -122,54 +135,92 @@ public sealed class KillfeedMonitor : IDisposable
 
     private async Task RunLoopAsync(CancellationToken token)
     {
-        Thread.CurrentThread.Priority = ThreadPriority.Lowest;
-        OcrEngine? engine = null;
         try
         {
-            engine = OcrEngine.TryCreateFromUserProfileLanguages()
-                     ?? OcrEngine.TryCreateFromLanguage(new Windows.Globalization.Language("en-US"));
-        }
-        catch
-        {
-            engine = null;
-        }
+            Thread.CurrentThread.Priority = ThreadPriority.Lowest;
 
-        if (engine is null)
-        {
-            return;
-        }
-
-        while (!token.IsCancellationRequested)
-        {
-            AppConfig config;
-            lock (_gate)
-            {
-                config = _config;
-            }
-
-            var shouldRun = config.HighlightsEnabled
-                            && !string.IsNullOrWhiteSpace(config.PlayerName)
-                            && (config.AutoTriple || config.AutoQuad || config.AutoAce);
-
-            if (shouldRun)
+            OcrEngine? engine = null;
+            while (!token.IsCancellationRequested && engine is null)
             {
                 try
                 {
-                    await TickAsync(engine, config, token).ConfigureAwait(false);
+                    engine = OcrEngine.TryCreateFromUserProfileLanguages()
+                             ?? OcrEngine.TryCreateFromLanguage(new Windows.Globalization.Language("en-US"));
                 }
                 catch
                 {
-                    // keep looping
+                    engine = null;
+                }
+
+                if (engine is null)
+                {
+                    StatusChanged?.Invoke("OCR killfeed indisponible (réessai…).");
+                    AppLog.Write("killfeed: OCR engine null, retry in 15s");
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(15), token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
                 }
             }
 
-            try
+            if (engine is null || token.IsCancellationRequested)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(350), token).ConfigureAwait(false);
+                return;
             }
-            catch (OperationCanceledException)
+
+            StatusChanged?.Invoke("Killfeed OCR prêt.");
+
+            while (!token.IsCancellationRequested)
             {
-                break;
+                AppConfig config;
+                lock (_gate)
+                {
+                    config = _config;
+                }
+
+                var shouldRun = config.HighlightsEnabled
+                                && !string.IsNullOrWhiteSpace(config.PlayerName)
+                                && (config.AutoTriple || config.AutoQuad || config.AutoAce);
+
+                if (shouldRun)
+                {
+                    try
+                    {
+                        await TickAsync(engine, config, token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLog.Write("killfeed tick: " + ex.Message);
+                    }
+                }
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(350), token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            // Permet un vrai Start() ultérieur (plus de boucle zombie).
+            lock (_gate)
+            {
+                if (_loop?.Id == Task.CurrentId || _loop?.IsCompleted == true)
+                {
+                    _loop = null;
+                }
             }
         }
     }
@@ -182,6 +233,7 @@ public sealed class KillfeedMonitor : IDisposable
         var rect = new ScreenRect(bounds.X + local.X, bounds.Y + local.Y, local.Width, local.Height);
 
         using var bitmap = CaptureRegion(rect);
+        token.ThrowIfCancellationRequested();
         var text = await RecognizeAsync(engine, bitmap, token).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(text) || text == _lastOcr)
         {
@@ -207,13 +259,13 @@ public sealed class KillfeedMonitor : IDisposable
         var bytes = ms.ToArray();
 
         using var stream = new InMemoryRandomAccessStream();
-        await stream.WriteAsync(bytes.AsBuffer());
+        await stream.WriteAsync(bytes.AsBuffer()).AsTask(token).ConfigureAwait(false);
         stream.Seek(0);
 
-        var decoder = await BitmapDecoder.CreateAsync(stream);
-        using var softwareBitmap = await decoder.GetSoftwareBitmapAsync();
+        var decoder = await BitmapDecoder.CreateAsync(stream).AsTask(token).ConfigureAwait(false);
+        using var softwareBitmap = await decoder.GetSoftwareBitmapAsync().AsTask(token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
-        var result = await engine.RecognizeAsync(softwareBitmap);
+        var result = await engine.RecognizeAsync(softwareBitmap).AsTask(token).ConfigureAwait(false);
         return result.Text ?? "";
     }
 
@@ -228,6 +280,10 @@ public sealed class KillfeedMonitor : IDisposable
         HighlightCooldownSeconds = source.HighlightCooldownSeconds,
         PlayerName = source.PlayerName,
         HighlightsEnabled = source.HighlightsEnabled,
+        Theme = source.Theme,
+        StartWithWindows = source.StartWithWindows,
+        PauseBufferOnBattery = source.PauseBufferOnBattery,
+        CheckUpdatesOnStartup = source.CheckUpdatesOnStartup,
         KillfeedX = source.KillfeedX,
         KillfeedY = source.KillfeedY,
         KillfeedW = source.KillfeedW,

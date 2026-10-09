@@ -1,0 +1,17 @@
+Karu — replay buffer Valorant (NVIDIA NVENC)
+
+Prérequis :
+  • Windows 10 / 11 (64 bits)
+  • Carte NVIDIA + drivers à jour
+  • Valorant en « Plein écran fenêtré » recommandé
+
+Après installation :
+  1. Lance Karu (icône Bureau ou menu Démarrer)
+  2. Vérifie le statut « Buffer actif »
+  3. F9 pour clipper (modifiable dans Réglages)
+  4. Highlights auto : active le killfeed + ton pseudo exact
+
+FFmpeg (GPL) est inclus pour l’enregistrement. Voir la licence affichée à l’étape suivante.
+
+Site / mises à jour :
+https://github.com/ilian21012005-bit/clip-buffer/releases

@@ -1,3 +1,5 @@
+using System.Drawing;
+using System.IO;
 using System.Windows;
 using Forms = System.Windows.Forms;
 
@@ -12,8 +14,8 @@ public sealed class TrayService : IDisposable
     {
         _icon = new Forms.NotifyIcon
         {
-            Text = "Clip Buffer",
-            Icon = System.Drawing.SystemIcons.Application,
+            Text = "Karu",
+            Icon = LoadAppIcon(),
             Visible = true,
             ContextMenuStrip = BuildMenu()
         };
@@ -40,6 +42,30 @@ public sealed class TrayService : IDisposable
         _disposed = true;
         _icon.Visible = false;
         _icon.Dispose();
+    }
+
+    private static Icon LoadAppIcon()
+    {
+        try
+        {
+            var icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "karu.ico");
+            if (File.Exists(icoPath))
+            {
+                return new Icon(icoPath);
+            }
+
+            var exe = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(exe) && File.Exists(exe))
+            {
+                return Icon.ExtractAssociatedIcon(exe) ?? SystemIcons.Application;
+            }
+        }
+        catch
+        {
+            // fall through
+        }
+
+        return SystemIcons.Application;
     }
 
     private Forms.ContextMenuStrip BuildMenu()

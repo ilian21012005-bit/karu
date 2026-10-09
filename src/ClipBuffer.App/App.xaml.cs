@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using ClipBuffer.App.Services;
 using ClipBuffer.Core;
@@ -15,8 +15,11 @@ public partial class App : System.Windows.Application
     private ReplayBufferService? _buffer;
     private ThumbnailService? _thumbnails;
     private KillfeedMonitor? _killfeed;
+    private PowerMonitorService? _power;
     private readonly ClipLibrary _library = new();
-    private ClipTag _pendingTag = ClipTag.Manual;
+    private int _thumbRefreshQueued;
+    private int _powerBusy;
+    private int _powerPending;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -34,17 +37,19 @@ public partial class App : System.Windows.Application
         catch (Exception ex)
         {
             AppLog.Write("Startup fatal: " + ex);
-            MessageBox.Show(ex.Message, "Clip Buffer", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(ex.Message, "Karu", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
         }
     }
 
     private void StartCore()
     {
-        _mutex = new Mutex(true, @"Local\ClipBuffer.SingleInstance", out var created);
+        _mutex = new Mutex(true, @"Local\Karu.SingleInstance", out var created);
         if (!created)
         {
-            MessageBox.Show("Clip Buffer est déjà lancé.", "Clip Buffer", MessageBoxButton.OK, MessageBoxImage.Information);
+            _mutex.Dispose();
+            _mutex = null;
+            MessageBox.Show("Karu est déjà lancé.", "Karu", MessageBoxButton.OK, MessageBoxImage.Information);
             Shutdown();
             return;
         }
@@ -60,11 +65,40 @@ public partial class App : System.Windows.Application
         }
 
         _config = ConfigStore.Load(ConfigStore.DefaultPath);
-        ConfigStore.Save(ConfigStore.DefaultPath, _config);
-        Directory.CreateDirectory(_config.SaveDirectory);
+        try
+        {
+            ConfigStore.Save(ConfigStore.DefaultPath, _config);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("config save: " + ex.Message);
+        }
+
+        if (!PathSafety.TryEnsureWritableDirectory(_config.SaveDirectory, out var saveDir, out _))
+        {
+            saveDir = AppConfig.DefaultSaveDirectory();
+            PathSafety.TryEnsureWritableDirectory(saveDir, out saveDir, out _);
+            _config.SaveDirectory = saveDir;
+        }
+        else
+        {
+            _config.SaveDirectory = saveDir;
+        }
+
+        ThemeService.Apply(_config.Theme);
+        GpuPreference.PreferHighPerformanceGpu();
+        try
+        {
+            StartupRegistration.SetEnabled(_config.StartWithWindows);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("startup reg: " + ex.Message);
+        }
 
         _window = new MainWindow(_config);
         _window.SettingsChanged += OnSettingsChanged;
+        _window.MissingThumbnailsRequested += OnMissingThumbnails;
 
         _tray = new TrayService();
         _tray.ShowSettingsRequested += ShowSettings;
@@ -79,78 +113,178 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        var probe = NvencProbe.Run(ffmpeg);
+        _window.SetStatus("Détection NVENC…");
+        _window.Show();
+
+        _ = Task.Run(() =>
+        {
+            NvencProbeResult probe;
+            try
+            {
+                probe = NvencProbe.Run(ffmpeg);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("nvenc probe: " + ex);
+                Dispatcher.BeginInvoke(() =>
+                {
+                    _window?.SetStatus("Erreur NVENC : " + ex.Message);
+                });
+                return;
+            }
+
+            Dispatcher.BeginInvoke(() => ContinueAfterNvenc(ffmpeg, probe));
+        });
+    }
+
+    private void ContinueAfterNvenc(string ffmpeg, NvencProbeResult probe)
+    {
         AppLog.Write("nvenc=" + probe.Ok + " " + probe.Message);
         if (!probe.Ok)
         {
-            _window.SetStatus(probe.Message);
-            _window.Show();
+            _window?.SetStatus(probe.Message);
             return;
         }
 
-        _thumbnails = new ThumbnailService(ffmpeg);
-
-        var segmentDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ClipBuffer",
-            "buffer");
-
-        _buffer = new ReplayBufferService(ffmpeg, segmentDir);
-        _buffer.SetBufferSeconds(_config.BufferSeconds);
-        _buffer.StatusChanged += () => Dispatcher.BeginInvoke(() => _window?.SetStatus(_buffer!.Status));
-        _buffer.ClipSaved += path => Dispatcher.BeginInvoke(() => OnClipSaved(path));
-        _buffer.SaveFailed += message => Dispatcher.BeginInvoke(() =>
-        {
-            _window?.SetStatus(message);
-            _tray?.ShowBalloon("Clip Buffer", message);
-        });
-
-        _killfeed = new KillfeedMonitor();
-        _killfeed.ApplyConfig(_config);
-        _killfeed.HighlightTriggered += tag =>
-        {
-            _pendingTag = tag;
-            _ = SaveClipAsync(tag);
-        };
-        _killfeed.Start();
-
         try
         {
-            _buffer.Start();
-            _window.SetStatus(_buffer.Status);
+            _thumbnails = new ThumbnailService(ffmpeg);
+            _window?.RefreshClips();
+
+            var segmentDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ClipBuffer",
+                "buffer");
+
+            _buffer = new ReplayBufferService(ffmpeg, segmentDir);
+            _buffer.SetBufferSeconds(_config.BufferSeconds);
+            _buffer.StatusChanged += () => Dispatcher.BeginInvoke(() => _window?.SetStatus(_buffer!.Status));
+            _buffer.ClipSaved += (path, tag) => Dispatcher.BeginInvoke(() => OnClipSaved(path, tag));
+            _buffer.SaveFailed += message => Dispatcher.BeginInvoke(() =>
+            {
+                _window?.SetStatus(message);
+                _tray?.ShowBalloon("Karu", message);
+            });
+
+            _killfeed = new KillfeedMonitor();
+            _killfeed.ApplyConfig(_config);
+            _killfeed.HighlightTriggered += tag => _ = SaveClipAsync(tag);
+            _killfeed.Start();
+
+            _power = new PowerMonitorService();
+            _power.PowerSourceChanged += _ =>
+                Dispatcher.BeginInvoke(() => ApplyPowerPolicy());
+            _power.Start();
+
+            ApplyPowerPolicy(startIfNeeded: true);
+            _window?.SetStatus(_buffer.Status);
             AppLog.Write("buffer started status=" + _buffer.Status);
+
+            try
+            {
+                var chord = HotkeyParser.TryParse(_config.Hotkey, out var parsed)
+                    ? parsed
+                    : HotkeyParser.Parse(AppConfig.DefaultHotkey);
+                _hotkey = new GlobalHotkeyService();
+                _hotkey.SetChord(chord);
+                _hotkey.Triggered += () => _ = SaveClipAsync(ClipTag.Manual);
+                _hotkey.Start();
+                AppLog.Write("hotkey installed " + HotkeyParser.ToDisplay(_hotkey.Chord));
+            }
+            catch (Exception ex)
+            {
+                AppLog.Write("hotkey: " + ex.Message);
+                _window?.SetStatus("Raccourci global indisponible : " + ex.Message);
+            }
+
+            if (_config.CheckUpdatesOnStartup)
+            {
+                _ = CheckUpdatesInBackgroundAsync();
+            }
         }
         catch (Exception ex)
         {
             AppLog.Write("buffer start failed: " + ex);
-            _window.SetStatus("Erreur NVENC : " + ex.Message);
-            _window.Show();
+            _window?.SetStatus("Erreur NVENC : " + ex.Message);
+        }
+    }
+
+    private void ApplyPowerPolicy(bool startIfNeeded = false)
+    {
+        if (_buffer is null)
+        {
             return;
         }
 
-        _hotkey = new GlobalHotkeyService
+        if (Interlocked.Exchange(ref _powerBusy, 1) == 1)
         {
-            Chord = HotkeyParser.TryParse(_config.Hotkey, out var chord)
-                ? chord
-                : HotkeyParser.Parse(AppConfig.DefaultHotkey)
-        };
-        _hotkey.Triggered += () =>
-        {
-            _pendingTag = ClipTag.Manual;
-            _ = SaveClipAsync(ClipTag.Manual);
-        };
-        _hotkey.Start();
-        AppLog.Write("hotkey installed " + HotkeyParser.ToDisplay(_hotkey.Chord));
+            Interlocked.Exchange(ref _powerPending, 1);
+            return;
+        }
 
-        _window.Show();
+        var pause = _config.PauseBufferOnBattery && (_power?.IsOnBattery ?? false);
+        var forceStart = startIfNeeded;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                if (pause)
+                {
+                    if (_buffer!.IsRunning || !_buffer.IsPausedForPower)
+                    {
+                        _buffer.PauseForPower();
+                    }
+
+                    _killfeed?.Stop();
+                    Dispatcher.BeginInvoke(() => _window?.SetStatus(_buffer.Status));
+                    return;
+                }
+
+                if (_buffer!.IsPausedForPower || (forceStart && !_buffer.IsRunning))
+                {
+                    try
+                    {
+                        _buffer.ResumeFromPower();
+                        _killfeed?.Start();
+                        Dispatcher.BeginInvoke(() => _window?.SetStatus(_buffer.Status));
+                    }
+                    catch (Exception ex)
+                    {
+                        Dispatcher.BeginInvoke(() =>
+                            _window?.SetStatus("Erreur NVENC : " + ex.Message));
+                        AppLog.Write("resume: " + ex);
+                    }
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _powerBusy, 0);
+                if (Interlocked.Exchange(ref _powerPending, 0) == 1)
+                {
+                    Dispatcher.BeginInvoke(() => ApplyPowerPolicy());
+                }
+            }
+        });
     }
 
-    private void OnClipSaved(string path)
+    private async Task CheckUpdatesInBackgroundAsync()
+    {
+        var result = await UpdateChecker.CheckLatestAsync().ConfigureAwait(false);
+        await Dispatcher.InvokeAsync(() =>
+        {
+            _window?.ShowUpdateNotice(result.Message ?? "");
+            if (result.UpdateAvailable)
+            {
+                _tray?.ShowBalloon("Karu", result.Message ?? "Mise à jour disponible.");
+            }
+        });
+    }
+
+    private void OnClipSaved(string path, ClipTag tag)
     {
         try
         {
-            _library.Register(path, _pendingTag);
-            _pendingTag = ClipTag.Manual;
+            _library.Register(path, tag);
             var videoPath = path;
             _ = Task.Run(async () =>
             {
@@ -169,29 +303,97 @@ public partial class App : System.Windows.Application
 
         _window?.SetStatus("Buffer actif");
         _window?.RefreshClips();
-        _tray?.ShowBalloon("Clip sauvé", Path.GetFileName(path));
+        _tray?.ShowBalloon("Karu", Path.GetFileName(path));
+    }
+
+    private void OnMissingThumbnails(IReadOnlyList<string> paths)
+    {
+        if (_thumbnails is null || paths.Count == 0)
+        {
+            return;
+        }
+
+        var copy = paths.ToArray();
+        _ = Task.Run(async () =>
+        {
+            await _thumbnails.GenerateMissingAsync(copy);
+            if (Interlocked.Exchange(ref _thumbRefreshQueued, 1) == 1)
+            {
+                return;
+            }
+
+            await Task.Delay(400);
+            Interlocked.Exchange(ref _thumbRefreshQueued, 0);
+            _ = Dispatcher.BeginInvoke(() => _window?.RefreshClips());
+        });
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _hotkey?.Dispose();
-        _killfeed?.Dispose();
-        _buffer?.Dispose();
-        _tray?.Dispose();
-        _mutex?.Dispose();
+        try
+        {
+            _hotkey?.Dispose();
+            _killfeed?.Dispose();
+            _power?.Dispose();
+            _buffer?.Dispose();
+            _thumbnails?.Dispose();
+            _tray?.Dispose();
+            _mutex?.Dispose();
+            _mutex = null;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("exit: " + ex.Message);
+        }
+
         base.OnExit(e);
     }
 
     private void OnSettingsChanged(AppConfig config)
     {
         _config = config;
-        ConfigStore.Save(ConfigStore.DefaultPath, _config);
-        Directory.CreateDirectory(_config.SaveDirectory);
+        try
+        {
+            ConfigStore.Save(ConfigStore.DefaultPath, _config);
+        }
+        catch (Exception ex)
+        {
+            _window?.SetStatus(PathSafety.FriendlyIoMessage(ex));
+            AppLog.Write("config save: " + ex.Message);
+        }
+
+        if (PathSafety.TryEnsureWritableDirectory(_config.SaveDirectory, out var saveDir, out var err))
+        {
+            _config.SaveDirectory = saveDir;
+        }
+        else
+        {
+            _window?.SetStatus(err ?? "Dossier clips inaccessible.");
+        }
+
         _buffer?.SetBufferSeconds(_config.BufferSeconds);
         _killfeed?.ApplyConfig(_config);
+        ApplyPowerPolicy();
+
+        try
+        {
+            StartupRegistration.SetEnabled(_config.StartWithWindows);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("startup reg: " + ex.Message);
+        }
+
         if (_hotkey is not null && HotkeyParser.TryParse(_config.Hotkey, out var chord))
         {
-            _hotkey.Chord = chord;
+            try
+            {
+                _hotkey.SetChord(chord);
+            }
+            catch (Exception ex)
+            {
+                _window?.SetStatus(ex.Message);
+            }
         }
     }
 
@@ -202,8 +404,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        _pendingTag = tag;
-        await _buffer.SaveClipAsync(_config.SaveDirectory);
+        await _buffer.SaveClipAsync(_config.SaveDirectory, tag);
     }
 
     private void ShowSettings()
@@ -223,26 +424,5 @@ public partial class App : System.Windows.Application
     {
         _window?.AllowClose();
         Shutdown();
-    }
-}
-
-internal static class AppLog
-{
-    private static readonly string PathName = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "ClipBuffer",
-        "log.txt");
-
-    public static void Write(string message)
-    {
-        try
-        {
-            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(PathName)!);
-            File.AppendAllText(PathName, DateTime.Now.ToString("s") + " " + message + Environment.NewLine);
-        }
-        catch
-        {
-            // ignore
-        }
     }
 }

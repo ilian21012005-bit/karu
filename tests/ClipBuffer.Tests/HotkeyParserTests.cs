@@ -45,5 +45,15 @@ public class HotkeyParserTests
         Assert.False(HotkeyParser.TryParse("", out _));
         Assert.False(HotkeyParser.TryParse("Ctrl+", out _));
         Assert.False(HotkeyParser.TryParse("Windows+F9", out _));
+        Assert.False(HotkeyParser.TryParse("Space", out _));
+        Assert.False(HotkeyParser.TryParse("OemPlus", out _));
+    }
+
+    [Fact]
+    public void IsSupported_accepts_function_and_alnum_keys()
+    {
+        Assert.True(HotkeyParser.IsSupportedByRegisterHotKey(HotkeyParser.Parse("F9")));
+        Assert.True(HotkeyParser.IsSupportedByRegisterHotKey(HotkeyParser.Parse("Ctrl+A")));
+        Assert.False(HotkeyParser.IsSupportedByRegisterHotKey(new HotkeyChord(false, false, false, "Space")));
     }
 }

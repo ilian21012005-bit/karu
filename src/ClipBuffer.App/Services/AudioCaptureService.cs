@@ -1,83 +1,72 @@
 using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
 namespace ClipBuffer.App.Services;
 
+/// <summary>
+/// Capture jeu (loopback) + micro (WASAPI). Rebranche à chaud si le périphérique
+/// par défaut change ; silence si mute / aucun device — jamais de crash.
+/// </summary>
 public sealed class AudioCaptureService : IDisposable
 {
+    private static readonly WaveFormat OutputFormat = new(48000, 16, 2);
+
+    private readonly object _gate = new();
+    private readonly MMDeviceEnumerator _enumerator = new();
+    private readonly DeviceNotificationClient _notifications;
+    private readonly System.Threading.Timer _debounce;
     private WasapiLoopbackCapture? _loopback;
     private WasapiCapture? _mic;
     private BufferedWaveProvider? _gameBuffer;
     private BufferedWaveProvider? _micBuffer;
     private IWaveProvider? _mixed;
+    private readonly SilenceProvider _silence = new(OutputFormat);
+    private string? _loopbackId;
+    private string? _micId;
     private bool _disposed;
 
-    public void Start()
+    public AudioCaptureService()
     {
-        var inputs = new List<ISampleProvider>();
-
+        _notifications = new DeviceNotificationClient(ScheduleRebuild);
+        _debounce = new System.Threading.Timer(_ => RebuildSafe(), null, Timeout.Infinite, Timeout.Infinite);
         try
         {
-            _loopback = new WasapiLoopbackCapture();
-            _gameBuffer = CreateBuffer(_loopback.WaveFormat);
-            _loopback.DataAvailable += (_, e) => _gameBuffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
-            _loopback.StartRecording();
-            inputs.Add(ToStereo48k(_gameBuffer));
+            _enumerator.RegisterEndpointNotificationCallback(_notifications);
         }
         catch
         {
-            DisposeCapture(ref _loopback);
+            // notifications optionnelles
         }
-
-        try
-        {
-            _mic = new WasapiCapture();
-            _micBuffer = CreateBuffer(_mic.WaveFormat);
-            _mic.DataAvailable += (_, e) => _micBuffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
-            _mic.StartRecording();
-            inputs.Add(ToStereo48k(_micBuffer));
-        }
-        catch
-        {
-            DisposeCapture(ref _mic);
-        }
-
-        if (inputs.Count == 0)
-        {
-            _mixed = new SilenceProvider(new WaveFormat(48000, 16, 2));
-            return;
-        }
-
-        ISampleProvider mix = inputs.Count == 1
-            ? inputs[0]
-            : new MixingSampleProvider(new[]
-            {
-                inputs[0],
-                new VolumeSampleProvider(inputs[1]) { Volume = 0.7f }
-            })
-            {
-                ReadFully = true
-            };
-
-        _mixed = new SampleToWaveProvider16(mix);
     }
+
+    public void Start() => Rebuild(force: true);
 
     public int Read(byte[] buffer, int offset, int count)
     {
-        if (_mixed is null)
+        IWaveProvider source;
+        lock (_gate)
         {
-            Array.Clear(buffer, offset, count);
+            source = _mixed ?? _silence;
+        }
+
+        try
+        {
+            var read = source.Read(buffer, offset, count);
+            if (read < count)
+            {
+                Array.Clear(buffer, offset + read, count - read);
+            }
+
             return count;
         }
-
-        var read = _mixed.Read(buffer, offset, count);
-        if (read < count)
+        catch
         {
-            Array.Clear(buffer, offset + read, count - read);
+            Array.Clear(buffer, offset, count);
+            ScheduleRebuild();
+            return count;
         }
-
-        return count;
     }
 
     public void Dispose()
@@ -88,8 +77,149 @@ public sealed class AudioCaptureService : IDisposable
         }
 
         _disposed = true;
+        try { _enumerator.UnregisterEndpointNotificationCallback(_notifications); } catch { /* ignore */ }
+        _debounce.Dispose();
+        lock (_gate)
+        {
+            TearDownUnlocked();
+        }
+
+        _enumerator.Dispose();
+    }
+
+    private void ScheduleRebuild()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _debounce.Change(400, Timeout.Infinite);
+    }
+
+    private void RebuildSafe() => Rebuild(force: false);
+
+    private void Rebuild(bool force)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            lock (_gate)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                var loopId = TryDefaultId(DataFlow.Render, Role.Multimedia);
+                var micId = TryDefaultId(DataFlow.Capture, Role.Communications)
+                            ?? TryDefaultId(DataFlow.Capture, Role.Multimedia);
+
+                if (!force &&
+                    _mixed is not null &&
+                    string.Equals(_loopbackId, loopId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(_micId, micId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                TearDownUnlocked();
+                _loopbackId = loopId;
+                _micId = micId;
+
+                var inputs = new List<ISampleProvider>();
+
+                try
+                {
+                    _loopback = new WasapiLoopbackCapture();
+                    _gameBuffer = CreateBuffer(_loopback.WaveFormat);
+                    _loopback.DataAvailable += OnLoopbackData;
+                    _loopback.RecordingStopped += (_, _) => ScheduleRebuild();
+                    _loopback.StartRecording();
+                    inputs.Add(ToStereo48k(_gameBuffer));
+                }
+                catch
+                {
+                    DisposeCapture(ref _loopback);
+                    _gameBuffer = null;
+                }
+
+                try
+                {
+                    // Pas de micro / mute système : Wasapi peut échouer → on continue sans voix.
+                    _mic = new WasapiCapture();
+                    _micBuffer = CreateBuffer(_mic.WaveFormat);
+                    _mic.DataAvailable += OnMicData;
+                    _mic.RecordingStopped += (_, _) => ScheduleRebuild();
+                    _mic.StartRecording();
+                    inputs.Add(new VolumeSampleProvider(ToStereo48k(_micBuffer)) { Volume = 0.7f });
+                }
+                catch
+                {
+                    DisposeCapture(ref _mic);
+                    _micBuffer = null;
+                }
+
+                if (inputs.Count == 0)
+                {
+                    _mixed = _silence;
+                    return;
+                }
+
+                ISampleProvider mix = inputs.Count == 1
+                    ? inputs[0]
+                    : new MixingSampleProvider(inputs) { ReadFully = true };
+
+                _mixed = new SampleToWaveProvider16(mix);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("audio rebuild: " + ex.Message);
+            lock (_gate)
+            {
+                TearDownUnlocked();
+                _mixed = _silence;
+            }
+        }
+    }
+
+    private void OnLoopbackData(object? sender, WaveInEventArgs e)
+    {
+        try { _gameBuffer?.AddSamples(e.Buffer, 0, e.BytesRecorded); }
+        catch { ScheduleRebuild(); }
+    }
+
+    private void OnMicData(object? sender, WaveInEventArgs e)
+    {
+        try { _micBuffer?.AddSamples(e.Buffer, 0, e.BytesRecorded); }
+        catch { ScheduleRebuild(); }
+    }
+
+    private void TearDownUnlocked()
+    {
         DisposeCapture(ref _loopback);
         DisposeCapture(ref _mic);
+        _gameBuffer = null;
+        _micBuffer = null;
+        _mixed = null;
+    }
+
+    private string? TryDefaultId(DataFlow flow, Role role)
+    {
+        try
+        {
+            using var device = _enumerator.GetDefaultAudioEndpoint(flow, role);
+            return device.ID;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static BufferedWaveProvider CreateBuffer(WaveFormat format) =>
@@ -123,18 +253,38 @@ public sealed class AudioCaptureService : IDisposable
             {
                 waveIn.StopRecording();
             }
-            else if (capture is WasapiCapture wasapi)
-            {
-                wasapi.StopRecording();
-            }
         }
         catch
         {
             // ignore
         }
 
-        capture?.Dispose();
+        try { capture?.Dispose(); } catch { /* ignore */ }
         capture = null;
+    }
+
+    private sealed class DeviceNotificationClient : IMMNotificationClient
+    {
+        private readonly Action _changed;
+
+        public DeviceNotificationClient(Action changed) => _changed = changed;
+
+        public void OnDeviceStateChanged(string deviceId, DeviceState newState) => _changed();
+        public void OnDeviceAdded(string pwstrDeviceId) => _changed();
+        public void OnDeviceRemoved(string deviceId) => _changed();
+
+        public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
+        {
+            if (role is Role.Multimedia or Role.Communications)
+            {
+                _changed();
+            }
+        }
+
+        public void OnPropertyValueChanged(string pwstrDeviceId, PropertyKey key)
+        {
+            // ignore (trop bruyant)
+        }
     }
 }
 

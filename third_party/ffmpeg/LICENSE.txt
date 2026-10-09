@@ -1,0 +1,23 @@
+FFmpeg licensing notice (Karu)
+==============================
+
+Karu may bundle or download a prebuilt `ffmpeg.exe` for desktop capture and
+muxing. FFmpeg is a separate project and is NOT owned by Karu.
+
+- Upstream: https://ffmpeg.org/
+- Typical prebuilt Windows builds (e.g. BtbN / gyan.dev) are often LGPL or GPL
+  depending on the exact configure flags of that build.
+- If you redistribute `ffmpeg.exe` with Karu, you MUST also redistribute the
+  corresponding FFmpeg license texts that shipped with that build, and comply
+  with LGPL/GPL obligations (source offer where required, attribution, etc.).
+
+Karu itself:
+- Does NOT ship NVIDIA proprietary drivers or NVENC SDK binaries.
+- Uses the system NVIDIA driver / NVENC via FFmpeg's `h264_nvenc` encoder.
+- Capture uses Desktop Duplication / ddagrab (no injection into game processes).
+
+Place next to the shipped ffmpeg binary:
+  ffmpeg/ffmpeg.exe
+  ffmpeg/LICENSE.txt   (this file or the upstream COPYING / LICENSE files)
+
+See also: https://ffmpeg.org/legal.html

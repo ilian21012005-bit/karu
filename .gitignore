@@ -6,3 +6,6 @@ tools/extracted/
 tools/*.zip
 tools/ffmpeg/ffmpeg.exe
 tools/smoketest/
+tools/innosetup/
+artifacts/
+dist/

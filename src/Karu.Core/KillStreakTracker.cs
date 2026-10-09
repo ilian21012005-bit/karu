@@ -293,8 +293,11 @@ public sealed class KillStreakTracker
 {
     private readonly HashSet<string> _seenKeys = new(StringComparer.OrdinalIgnoreCase);
     private DateTime _lastKillUtc = DateTime.MinValue;
+    private DateTime _firstKillUtc = DateTime.MinValue;
 
     public int Streak { get; private set; }
+    public DateTime FirstKillUtc => _firstKillUtc;
+    public DateTime LastKillUtc => _lastKillUtc;
     public TimeSpan IdleReset { get; set; } = TimeSpan.FromSeconds(45);
 
     public event Action<int>? ThresholdReached;
@@ -304,6 +307,7 @@ public sealed class KillStreakTracker
         Streak = 0;
         _seenKeys.Clear();
         _lastKillUtc = DateTime.MinValue;
+        _firstKillUtc = DateTime.MinValue;
     }
 
     public void ObserveLine(string line, string playerName, DateTime utcNow)
@@ -336,6 +340,7 @@ public sealed class KillStreakTracker
         {
             Streak = 0;
             _seenKeys.Clear();
+            _firstKillUtc = DateTime.MinValue;
         }
 
         if (!_seenKeys.Add(evt.StableKey))
@@ -352,10 +357,16 @@ public sealed class KillStreakTracker
         if (evt.Kind == KillfeedEventKind.LocalDeath)
         {
             Streak = 0;
+            _firstKillUtc = DateTime.MinValue;
             return;
         }
 
         Streak++;
+        if (Streak == 1 || _firstKillUtc == DateTime.MinValue)
+        {
+            _firstKillUtc = utcNow;
+        }
+
         _lastKillUtc = utcNow;
         if (Streak is 3 or 4 or 5)
         {

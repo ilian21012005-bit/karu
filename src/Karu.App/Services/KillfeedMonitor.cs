@@ -11,11 +11,11 @@ namespace Karu.App.Services;
 public sealed class KillfeedMonitor : IDisposable
 {
     private readonly KillStreakTracker _tracker = new();
+    private readonly HighlightClipScheduler _scheduler = new();
     private readonly object _gate = new();
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private AppConfig _config = AppConfig.CreateDefault();
-    private DateTime _lastFireUtc = DateTime.MinValue;
     private bool _disposed;
     private string _lastOcr = "";
 
@@ -24,7 +24,7 @@ public sealed class KillfeedMonitor : IDisposable
         _tracker.ThresholdReached += OnThreshold;
     }
 
-    public event Action<ClipTag>? HighlightTriggered;
+    public event Action<HighlightClipRequest>? HighlightTriggered;
     public event Action<string>? StatusChanged;
 
     public void ApplyConfig(AppConfig config)
@@ -79,6 +79,7 @@ public sealed class KillfeedMonitor : IDisposable
         try { loop?.Wait(2500); } catch { /* ignore */ }
         cts?.Dispose();
         _tracker.Reset();
+        _scheduler.Reset();
         _lastOcr = "";
     }
 
@@ -123,14 +124,30 @@ public sealed class KillfeedMonitor : IDisposable
             return;
         }
 
-        var cooldown = TimeSpan.FromSeconds(config.HighlightCooldownSeconds);
-        if (DateTime.UtcNow - _lastFireUtc < cooldown)
+        var now = DateTime.UtcNow;
+        var first = _tracker.FirstKillUtc;
+        var last = _tracker.LastKillUtc;
+        if (first == DateTime.MinValue)
         {
-            return;
+            first = last == DateTime.MinValue ? now : last;
         }
 
-        _lastFireUtc = DateTime.UtcNow;
-        HighlightTriggered?.Invoke(tag);
+        if (last == DateTime.MinValue)
+        {
+            last = now;
+        }
+
+        _scheduler.Cooldown = TimeSpan.FromSeconds(config.HighlightCooldownSeconds);
+        _scheduler.NotifyThreshold(tag, first, last, now);
+    }
+
+    private void PollScheduler()
+    {
+        var ready = _scheduler.TryDequeueReady(DateTime.UtcNow);
+        if (ready is { } request)
+        {
+            HighlightTriggered?.Invoke(request);
+        }
     }
 
     private async Task RunLoopAsync(CancellationToken token)
@@ -201,6 +218,8 @@ public sealed class KillfeedMonitor : IDisposable
                         AppLog.Write("killfeed tick: " + ex.Message);
                     }
                 }
+
+                PollScheduler();
 
                 try
                 {

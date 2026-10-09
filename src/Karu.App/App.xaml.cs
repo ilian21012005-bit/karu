@@ -168,7 +168,7 @@ public partial class App : System.Windows.Application
 
             _killfeed = new KillfeedMonitor();
             _killfeed.ApplyConfig(_config);
-            _killfeed.HighlightTriggered += tag => _ = SaveClipAsync(tag);
+            _killfeed.HighlightTriggered += request => _ = SaveHighlightAsync(request);
             _killfeed.Start();
 
             _power = new PowerMonitorService();
@@ -405,6 +405,18 @@ public partial class App : System.Windows.Application
         }
 
         await _buffer.SaveClipAsync(_config.SaveDirectory, tag);
+    }
+
+    private async Task SaveHighlightAsync(HighlightClipRequest request)
+    {
+        if (_buffer is null)
+        {
+            return;
+        }
+
+        AppLog.Write(
+            $"highlight {request.Tag} window={request.WindowStartUtc:HH:mm:ss}..{request.WindowEndUtc:HH:mm:ss}Z");
+        await _buffer.SaveClipAsync(_config.SaveDirectory, request);
     }
 
     private void ShowSettings()

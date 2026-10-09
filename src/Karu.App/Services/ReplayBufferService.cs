@@ -187,7 +187,21 @@ public sealed class ReplayBufferService : IDisposable
     public Task SaveClipAsync(string saveDirectory, string gameHint = "Valorant") =>
         SaveClipAsync(saveDirectory, ClipTag.Manual, gameHint);
 
-    public async Task SaveClipAsync(string saveDirectory, ClipTag tag, string gameHint = "Valorant")
+    public Task SaveClipAsync(string saveDirectory, ClipTag tag, string gameHint = "Valorant") =>
+        SaveClipCoreAsync(saveDirectory, tag, window: null, gameHint);
+
+    public Task SaveClipAsync(string saveDirectory, HighlightClipRequest request, string gameHint = "Valorant") =>
+        SaveClipCoreAsync(
+            saveDirectory,
+            request.Tag,
+            (request.WindowStartUtc, request.WindowEndUtc),
+            gameHint);
+
+    private async Task SaveClipCoreAsync(
+        string saveDirectory,
+        ClipTag tag,
+        (DateTime StartUtc, DateTime EndUtc)? window,
+        string gameHint)
     {
         if (Interlocked.Exchange(ref _saving, 1) == 1)
         {
@@ -229,7 +243,21 @@ public sealed class ReplayBufferService : IDisposable
             }
 
             var writing = files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).LastOrDefault();
-            var selected = SegmentRetention.FilesToSave(files, _bufferSeconds, writing);
+            IReadOnlyList<string> selected;
+            if (window is { } w)
+            {
+                selected = SegmentRetention.FilesToSaveInWindow(files, w.StartUtc, w.EndUtc, writing);
+                if (selected.Count == 0)
+                {
+                    // Filet : fenêtrage trop strict / timestamps → buffer classique
+                    selected = SegmentRetention.FilesToSave(files, _bufferSeconds, writing);
+                }
+            }
+            else
+            {
+                selected = SegmentRetention.FilesToSave(files, _bufferSeconds, writing);
+            }
+
             if (selected.Count == 0)
             {
                 SaveFailed?.Invoke("Pas encore assez de replay. Attends quelques secondes.");

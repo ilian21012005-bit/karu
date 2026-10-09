@@ -38,7 +38,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="LibVLCSharp" Version="3.6.6" />
+    <PackageReference Include="LibVLCSharp.WinForms" Version="3.6.6" />
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.20" />
   </ItemGroup>
 
   <ItemGroup>
@@ -51,17 +54,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\tools\ffmpeg\ffmpeg.exe"
-          Link="ffmpeg\ffmpeg.exe"
-          CopyToOutputDirectory="PreserveNewest"
-          Condition="Exists('..\..\tools\ffmpeg\ffmpeg.exe')" />
-    <None Include="..\..\third_party\ffmpeg\LICENSE.txt"
-          Link="ffmpeg\LICENSE.txt"
-          CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\tools\ffmpeg\COPYING*"
-          Link="ffmpeg\%(Filename)%(Extension)"
-          CopyToOutputDirectory="PreserveNewest"
-          Condition="Exists('..\..\tools\ffmpeg\COPYING')" />
+    <None Include="..\..\tools\ffmpeg\ffmpeg.exe" Link="ffmpeg\ffmpeg.exe" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\tools\ffmpeg\ffmpeg.exe')" />
+    <None Include="..\..\third_party\ffmpeg\LICENSE.txt" Link="ffmpeg\LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\tools\ffmpeg\COPYING*" Link="ffmpeg\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\tools\ffmpeg\COPYING')" />
   </ItemGroup>
 
 </Project>

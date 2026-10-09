@@ -100,6 +100,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<ClipListItem> _items = new();
     private readonly ObservableCollection<FolderListItem> _folders = new();
     private readonly DispatcherTimer _playTimer;
+    private readonly ClipPlaybackController _clipPlayer = new();
     private bool _allowClose;
     private bool _suppressEvents;
     private bool _isDraggingClip;
@@ -129,9 +130,9 @@ public partial class MainWindow : Window
         InitializeComponent();
         ClipList.ItemsSource = _items;
         FolderList.ItemsSource = _folders;
-        Player.ScrubbingEnabled = true;
-        Player.LoadedBehavior = MediaState.Manual;
-        Player.UnloadedBehavior = MediaState.Stop;
+        PlayerView.MediaPlayer = _clipPlayer.MediaPlayer;
+        _clipPlayer.EndReached += () => Dispatcher.BeginInvoke(OnClipPlaybackEnded);
+        _clipPlayer.EncounteredError += msg => Dispatcher.BeginInvoke(() => SetStatus(msg));
         _playTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _playTimer.Tick += (_, _) => UpdatePlaybackUi();
         ApplyConfig(config);
@@ -475,7 +476,7 @@ public partial class MainWindow : Window
     private void ShowClipsView()
     {
         StopPlaybackHard();
-        Player.Source = null;
+        _clipPlayer.Clear();
         DetailView.Visibility = Visibility.Collapsed;
         ClipsView.Visibility = Visibility.Visible;
         SettingsView.Visibility = Visibility.Collapsed;
@@ -489,7 +490,7 @@ public partial class MainWindow : Window
     private void ShowSettingsView()
     {
         StopPlaybackHard();
-        Player.Source = null;
+        _clipPlayer.Clear();
         DetailView.Visibility = Visibility.Collapsed;
         ClipsView.Visibility = Visibility.Collapsed;
         SettingsView.Visibility = Visibility.Visible;
@@ -556,7 +557,7 @@ public partial class MainWindow : Window
         if (index < 0)
         {
             // Retombe sur le chemin du player si possible.
-            var src = Player.Source?.LocalPath;
+            var src = _clipPlayer.Path;
             if (!string.IsNullOrWhiteSpace(src))
             {
                 index = _items.ToList().FindIndex(i =>
@@ -909,7 +910,7 @@ public partial class MainWindow : Window
 
         var wasDetail = DetailView.Visibility == Visibility.Visible;
         StopPlaybackHard();
-        Player.Source = null;
+        _clipPlayer.Clear();
         if (wasDetail)
         {
             ShowClipsView();
@@ -1216,7 +1217,7 @@ public partial class MainWindow : Window
             ClipList.SelectedItem = item;
             StopPlaybackHard();
             ShowDetailView(item);
-            Player.Source = new Uri(item.Metadata.VideoPath);
+            _clipPlayer.Open(item.Metadata.VideoPath);
             ApplyUserVolume();
             StartPlayback();
             TagBox.SelectedIndex = item.Metadata.Tag switch
@@ -1279,7 +1280,7 @@ public partial class MainWindow : Window
 
     private void PlayPause_OnClick(object sender, RoutedEventArgs e)
     {
-        if (Player.Source is null)
+        if (!_clipPlayer.HasMedia)
         {
             return;
         }
@@ -1300,28 +1301,27 @@ public partial class MainWindow : Window
 
     private void SeekBy(TimeSpan delta)
     {
-        if (!Player.NaturalDuration.HasTimeSpan)
+        if (!_clipPlayer.HasDuration)
         {
             return;
         }
 
-        var next = Player.Position + delta;
+        var next = _clipPlayer.Position + delta;
         if (next < TimeSpan.Zero) next = TimeSpan.Zero;
-        if (next > Player.NaturalDuration.TimeSpan) next = Player.NaturalDuration.TimeSpan;
+        if (next > _clipPlayer.Duration) next = _clipPlayer.Duration;
         SeekTo(next, resumeIfWasPlaying: true);
     }
 
     private void SeekTo(TimeSpan position, bool resumeIfWasPlaying)
     {
-        if (!Player.NaturalDuration.HasTimeSpan || Player.Source is null)
+        if (!_clipPlayer.HasDuration || !_clipPlayer.HasMedia)
         {
             return;
         }
 
         var wasPlaying = _isPlaying;
-        // Pause first: setting Position while playing makes WPF MediaElement desync (pause/audio bugs).
         PausePlayback();
-        Player.Position = position;
+        _clipPlayer.Position = position;
         UpdatePlaybackUi();
 
         if (resumeIfWasPlaying && wasPlaying)
@@ -1332,13 +1332,13 @@ public partial class MainWindow : Window
 
     private void StartPlayback()
     {
-        if (Player.Source is null)
+        if (!_clipPlayer.HasMedia)
         {
             return;
         }
 
         ApplyUserVolume();
-        Player.Play();
+        _clipPlayer.Play();
         _isPlaying = true;
         _playTimer.Start();
         UpdatePlayPauseLabel();
@@ -1348,7 +1348,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            Player.Pause();
+            _clipPlayer.Pause();
         }
         catch
         {
@@ -1368,7 +1368,7 @@ public partial class MainWindow : Window
         _isSeeking = false;
         try
         {
-            Player.Stop();
+            _clipPlayer.Stop();
         }
         catch
         {
@@ -1383,7 +1383,7 @@ public partial class MainWindow : Window
     private void ApplyUserVolume()
     {
         _userVolume = Math.Clamp(VolumeSlider.Value, 0, 1);
-        Player.Volume = _userVolume;
+        _clipPlayer.Volume = _userVolume;
         VolumeText.Text = $"{(int)Math.Round(_userVolume * 100)}%";
     }
 
@@ -1402,9 +1402,9 @@ public partial class MainWindow : Window
 
     private void SeekSlider_OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (Player.NaturalDuration.HasTimeSpan)
+        if (_clipPlayer.HasDuration)
         {
-            Player.Position = TimeSpan.FromSeconds(SeekSlider.Value);
+            _clipPlayer.Position = TimeSpan.FromSeconds(SeekSlider.Value);
         }
 
         _isSeeking = false;
@@ -1420,54 +1420,35 @@ public partial class MainWindow : Window
 
     private void SeekSlider_OnValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        // Pendant le drag : maj du temps seulement, PAS de Position (évite le bug audio).
-        if (!IsLoaded || !_isSeeking || !Player.NaturalDuration.HasTimeSpan)
+        if (!IsLoaded || !_isSeeking || !_clipPlayer.HasDuration)
         {
             return;
         }
 
         var preview = TimeSpan.FromSeconds(SeekSlider.Value);
-        TimeText.Text = $"{FormatTime(preview)} / {FormatTime(Player.NaturalDuration.TimeSpan)}";
+        TimeText.Text = $"{FormatTime(preview)} / {FormatTime(_clipPlayer.Duration)}";
     }
 
-    private void Player_OnMediaOpened(object sender, RoutedEventArgs e)
-    {
-        if (Player.NaturalDuration.HasTimeSpan)
-        {
-            SeekSlider.Maximum = Math.Max(0.1, Player.NaturalDuration.TimeSpan.TotalSeconds);
-            SeekSlider.Value = 0;
-        }
-
-        UpdatePlaybackUi();
-    }
-
-    private void Player_OnMediaEnded(object sender, RoutedEventArgs e)
+    private void OnClipPlaybackEnded()
     {
         PausePlayback();
-        if (Player.NaturalDuration.HasTimeSpan)
+        if (_clipPlayer.HasDuration)
         {
-            Player.Position = Player.NaturalDuration.TimeSpan;
+            _clipPlayer.Position = _clipPlayer.Duration;
             UpdatePlaybackUi();
         }
     }
 
-    private void Player_OnMediaFailed(object sender, ExceptionRoutedEventArgs e)
-    {
-        AppLog.Write("media failed: " + e.ErrorException?.Message);
-        SetStatus("Lecture limitée — ouvre le clip dans l’Explorateur si le son manque.");
-        ApplyUserVolume();
-    }
-
     private void UpdatePlaybackUi()
     {
-        if (!Player.NaturalDuration.HasTimeSpan)
+        if (!_clipPlayer.HasDuration)
         {
             TimeText.Text = "0:00 / 0:00";
             return;
         }
 
-        var total = Player.NaturalDuration.TimeSpan;
-        var pos = Player.Position;
+        var total = _clipPlayer.Duration;
+        var pos = _clipPlayer.Position;
         if (!_isSeeking)
         {
             SeekSlider.Maximum = Math.Max(0.1, total.TotalSeconds);
@@ -1504,7 +1485,7 @@ public partial class MainWindow : Window
         if (ask != MessageBoxResult.Yes) return;
 
         StopPlaybackHard();
-        Player.Source = null;
+        _clipPlayer.Clear();
         _library.Delete(_directory, item.Metadata.VideoPath);
         ShowClipsView();
         RefreshClips();
@@ -1563,6 +1544,8 @@ public partial class MainWindow : Window
             _clipWatcher?.Dispose();
             _clipWatcher = null;
             _clipWatchDebounce?.Stop();
+            StopPlaybackHard();
+            _clipPlayer.Dispose();
             return;
         }
 

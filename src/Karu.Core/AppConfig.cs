@@ -70,13 +70,22 @@ public sealed class AppConfig
         }
 
         PlayerName = (PlayerName ?? "").Trim();
-        Theme = string.Equals(Theme, "aventurine", StringComparison.OrdinalIgnoreCase)
-            ? "aventurine"
-            : "carbon";
+        Theme = NormalizeTheme(Theme);
         KillfeedX = Math.Clamp(KillfeedX, 0, 0.95);
         KillfeedY = Math.Clamp(KillfeedY, 0, 0.95);
         KillfeedW = Math.Clamp(KillfeedW, 0.05, 1 - KillfeedX);
         KillfeedH = Math.Clamp(KillfeedH, 0.05, 1 - KillfeedY);
+    }
+
+    private static readonly HashSet<string> KnownThemes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "carbon", "aventurine", "plum", "ember", "forest", "ocean", "holst", "crimson"
+    };
+
+    private static string NormalizeTheme(string? theme)
+    {
+        var id = (theme ?? "carbon").Trim().ToLowerInvariant();
+        return KnownThemes.Contains(id) ? id : "carbon";
     }
 
     public ScreenRect GetKillfeedPixelRect(int screenWidth, int screenHeight)

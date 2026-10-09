@@ -226,7 +226,7 @@ public partial class MainWindow : Window
         CooldownValueText.Text = $"{config.HighlightCooldownSeconds} s";
         CalibrationInfo.Text =
             $"Zone killfeed : {_killX:0%} , {_killY:0%} · {_killW:0%} × {_killH:0%}";
-        ThemeBox.SelectedIndex = ThemeService.Normalize(config.Theme) == ThemeService.Aventurine ? 1 : 0;
+        ThemeBox.SelectedIndex = ThemeService.IndexOf(config.Theme);
         StartWithWindowsCheck.IsChecked = config.StartWithWindows;
         PauseOnBatteryCheck.IsChecked = config.PauseBufferOnBattery;
         CheckUpdatesCheck.IsChecked = config.CheckUpdatesOnStartup;
@@ -239,7 +239,7 @@ public partial class MainWindow : Window
     private void ThemeBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded || _suppressEvents) return;
-        var theme = ThemeBox.SelectedIndex == 1 ? ThemeService.Aventurine : ThemeService.Carbon;
+        var theme = ThemeService.IdAt(ThemeBox.SelectedIndex);
         ThemeService.Apply(theme);
         Background = (Brush)Application.Current.Resources["BgBrush"];
         Foreground = (Brush)Application.Current.Resources["TextBrush"];
@@ -1502,7 +1502,7 @@ public partial class MainWindow : Window
         AutoAce = AutoAceCheck.IsChecked == true,
         PlayerName = PlayerNameBox.Text,
         HighlightCooldownSeconds = (int)CooldownSlider.Value,
-        Theme = ThemeBox.SelectedIndex == 1 ? ThemeService.Aventurine : ThemeService.Carbon,
+        Theme = ThemeService.IdAt(ThemeBox.SelectedIndex),
         StartWithWindows = StartWithWindowsCheck.IsChecked == true,
         PauseBufferOnBattery = PauseOnBatteryCheck.IsChecked == true,
         CheckUpdatesOnStartup = CheckUpdatesCheck.IsChecked == true,

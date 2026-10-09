@@ -533,10 +533,16 @@
                             <ComboBox x:Name="ThemeBox"
                                       SelectedIndex="0"
                                       SelectionChanged="ThemeBox_OnSelectionChanged">
-                                <ComboBoxItem Content="Carbon (bleu sombre)"/>
-                                <ComboBoxItem Content="Aventurine (bordeaux)"/>
+                                <ComboBoxItem Content="Carbon (bleu sombre)" Tag="carbon"/>
+                                <ComboBoxItem Content="Aventurine (bordeaux)" Tag="aventurine"/>
+                                <ComboBoxItem Content="Plum (violet)" Tag="plum"/>
+                                <ComboBoxItem Content="Ember (terre)" Tag="ember"/>
+                                <ComboBoxItem Content="Forest (vert)" Tag="forest"/>
+                                <ComboBoxItem Content="Ocean (bleu)" Tag="ocean"/>
+                                <ComboBoxItem Content="Holst (rose)" Tag="holst"/>
+                                <ComboBoxItem Content="Crimson (rouge)" Tag="crimson"/>
                             </ComboBox>
-                            <TextBlock Text="Carbon = th&#232;me actuel. Aventurine = rouge bordeaux m&#233;tallique."
+                            <TextBlock Text="Palette sombre — change l&#8217;ambiance de toute l&#8217;app."
                                        Foreground="{DynamicResource MutedBrush}"
                                        FontSize="11"
                                        Margin="0,8,0,12"

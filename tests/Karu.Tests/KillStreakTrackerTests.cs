@@ -28,10 +28,66 @@ public class KillStreakTrackerTests
     public void ExtractEvents_ignores_name_stuck_in_middle_of_blob()
     {
         var events = KillfeedLineParser.ExtractEvents(
-            "pastelghost Noot Noot Rick Grimes Noot Noot im owned Clove",
+            "pastelghost Noot Noot im owned Clove and more junk Rick Grimes Noot Noot im owned Clove extra",
             "Rick Grimes");
 
-        Assert.Empty(events);
+        // Long préfixe (>3 tokens utiles) → pas un glue killfeed court
+        Assert.Empty(events.Where(e => e.Kind == KillfeedEventKind.LocalKill && e.StableKey == "k:clove"));
+    }
+
+    [Fact]
+    public void ExtractEvents_accepts_short_glued_prefix_before_player_kill()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "Clove Rick Grimes Reyna",
+            "Rick Grimes");
+
+        Assert.Contains(events, e => e.Kind == KillfeedEventKind.LocalKill && e.StableKey == "k:reyna");
+    }
+
+    [Fact]
+    public void ExtractEvents_keeps_victim_after_spectators_ocr_noise()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "Rick Grimes CTATORS Noot Noot Clove",
+            "Rick Grimes");
+
+        Assert.Contains(events, e => e.Kind == KillfeedEventKind.LocalKill && e.StableKey == "k:noot");
+    }
+
+    [Fact]
+    public void ExtractEvents_quad_clip_ocr_reaches_four_kills()
+    {
+        var frames = new[]
+        {
+            "Rick Grimes sub catboy",
+            "Clove Rick Grimes pastelghost Reyna",
+            "Rick Grimes Noot Noot",
+            "rimes Rick Grimes CTATORS Noot Noot Clove",
+        };
+
+        var tracker = new KillStreakTracker();
+        var hits = new List<int>();
+        tracker.ThresholdReached += hits.Add;
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < frames.Length; i++)
+        {
+            tracker.ObserveOcrText(frames[i], "Rick Grimes", now.AddSeconds(i * 3));
+        }
+
+        Assert.Equal(4, tracker.Streak);
+        Assert.Equal(new[] { 3, 4 }, hits);
+    }
+
+    [Fact]
+    public void ExtractEvents_victim_is_first_token_not_next_killfeed_line()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "Rick Grimes sub catboy Reyna PawsocksEgirluwu",
+            "Rick Grimes");
+
+        Assert.Contains(events, e => e.StableKey == "k:sub");
+        Assert.DoesNotContain(events, e => e.StableKey == "k:pawsocksegirluwu");
     }
 
     [Fact]
@@ -86,8 +142,8 @@ public class KillStreakTrackerTests
     {
         var tracker = new KillStreakTracker();
         var now = DateTime.UtcNow;
-        tracker.ObserveLine("me  Vandal  a", "me", now);
-        tracker.ObserveLine("me  Vandal  b", "me", now.AddSeconds(1));
+        tracker.ObserveLine("me  Vandal  alpha", "me", now);
+        tracker.ObserveLine("me  Vandal  bravo", "me", now.AddSeconds(1));
         tracker.ObserveLine("enemy  Spectre  me", "me", now.AddSeconds(2));
         Assert.Equal(0, tracker.Streak);
     }
@@ -115,7 +171,7 @@ public class KillStreakTrackerTests
         var now = DateTime.UtcNow;
 
         tracker.ObserveOcrText("Rick Grimes Clove", "Rick Grimes", now);
-        tracker.ObserveOcrText("Rick Grimes Rick Grimes Clove SekiR0", "Rick Grimes", now.AddSeconds(1));
+        tracker.ObserveOcrText("Rick Grimes Clove Rick Grimes SekiR0", "Rick Grimes", now.AddSeconds(1));
         tracker.ObserveOcrText("Rick Grimes Clove", "Rick Grimes", now.AddSeconds(2));
 
         // clove une fois + sekiro une fois
@@ -145,9 +201,9 @@ public class KillStreakTrackerTests
     {
         var tracker = new KillStreakTracker { IdleReset = TimeSpan.FromSeconds(10) };
         var t0 = DateTime.UtcNow;
-        tracker.ObserveLine("me  Vandal  a", "me", t0);
-        tracker.ObserveLine("me  Vandal  b", "me", t0.AddSeconds(1));
-        tracker.ObserveLine("me  Vandal  c", "me", t0.AddSeconds(20));
+        tracker.ObserveLine("me  Vandal  alpha", "me", t0);
+        tracker.ObserveLine("me  Vandal  bravo", "me", t0.AddSeconds(1));
+        tracker.ObserveLine("me  Vandal  charlie", "me", t0.AddSeconds(20));
         Assert.Equal(1, tracker.Streak);
     }
 }

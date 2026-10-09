@@ -16,10 +16,11 @@ public partial class App : System.Windows.Application
     private ThumbnailService? _thumbnails;
     private KillfeedMonitor? _killfeed;
     private PowerMonitorService? _power;
+    private GameForegroundMonitor? _gameFocus;
     private readonly ClipLibrary _library = new();
     private int _thumbRefreshQueued;
-    private int _powerBusy;
-    private int _powerPending;
+    private int _policyBusy;
+    private int _policyPending;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -169,16 +170,20 @@ public partial class App : System.Windows.Application
             _killfeed = new KillfeedMonitor();
             _killfeed.ApplyConfig(_config);
             _killfeed.HighlightTriggered += request => _ = SaveHighlightAsync(request);
-            _killfeed.Start();
+            // OCR + buffer démarrent seulement quand Valorant est au premier plan
 
             _power = new PowerMonitorService();
             _power.PowerSourceChanged += _ =>
-                Dispatcher.BeginInvoke(() => ApplyPowerPolicy());
+                Dispatcher.BeginInvoke(() => ApplyCapturePolicy());
             _power.Start();
 
-            ApplyPowerPolicy(startIfNeeded: true);
-            _window?.SetStatus(_buffer.Status);
-            AppLog.Write("buffer started status=" + _buffer.Status);
+            _gameFocus = new GameForegroundMonitor();
+            _gameFocus.Changed += _ =>
+                Dispatcher.BeginInvoke(() => ApplyCapturePolicy());
+            _gameFocus.Start();
+
+            ApplyCapturePolicy();
+            AppLog.Write("capture policy ready gameFocus=" + _gameFocus.IsGameFocused);
 
             try
             {
@@ -209,26 +214,29 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private void ApplyPowerPolicy(bool startIfNeeded = false)
+    /// <summary>
+    /// Batterie prioritaire, puis focus Valorant : sinon buffer/OCR off.
+    /// </summary>
+    private void ApplyCapturePolicy()
     {
         if (_buffer is null)
         {
             return;
         }
 
-        if (Interlocked.Exchange(ref _powerBusy, 1) == 1)
+        if (Interlocked.Exchange(ref _policyBusy, 1) == 1)
         {
-            Interlocked.Exchange(ref _powerPending, 1);
+            Interlocked.Exchange(ref _policyPending, 1);
             return;
         }
 
-        var pause = _config.PauseBufferOnBattery && (_power?.IsOnBattery ?? false);
-        var forceStart = startIfNeeded;
+        var pauseBattery = _config.PauseBufferOnBattery && (_power?.IsOnBattery ?? false);
+        var gameFocused = _gameFocus?.IsGameFocused ?? false;
         _ = Task.Run(() =>
         {
             try
             {
-                if (pause)
+                if (pauseBattery)
                 {
                     if (_buffer!.IsRunning || !_buffer.IsPausedForPower)
                     {
@@ -240,28 +248,45 @@ public partial class App : System.Windows.Application
                     return;
                 }
 
-                if (_buffer!.IsPausedForPower || (forceStart && !_buffer.IsRunning))
+                if (!gameFocused)
                 {
-                    try
+                    _killfeed?.Stop();
+                    if (_buffer!.IsRunning)
+                    {
+                        _buffer.Stop();
+                    }
+
+                    Dispatcher.BeginInvoke(() => _window?.SetStatus("En attente de Valorant"));
+                    return;
+                }
+
+                try
+                {
+                    if (_buffer!.IsPausedForPower)
                     {
                         _buffer.ResumeFromPower();
-                        _killfeed?.Start();
-                        Dispatcher.BeginInvoke(() => _window?.SetStatus(_buffer.Status));
                     }
-                    catch (Exception ex)
+                    else if (!_buffer.IsRunning)
                     {
-                        Dispatcher.BeginInvoke(() =>
-                            _window?.SetStatus("Erreur NVENC : " + ex.Message));
-                        AppLog.Write("resume: " + ex);
+                        _buffer.Start();
                     }
+
+                    _killfeed?.Start();
+                    Dispatcher.BeginInvoke(() => _window?.SetStatus(_buffer.Status));
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.BeginInvoke(() =>
+                        _window?.SetStatus("Erreur NVENC : " + ex.Message));
+                    AppLog.Write("capture start: " + ex);
                 }
             }
             finally
             {
-                Interlocked.Exchange(ref _powerBusy, 0);
-                if (Interlocked.Exchange(ref _powerPending, 0) == 1)
+                Interlocked.Exchange(ref _policyBusy, 0);
+                if (Interlocked.Exchange(ref _policyPending, 0) == 1)
                 {
-                    Dispatcher.BeginInvoke(() => ApplyPowerPolicy());
+                    Dispatcher.BeginInvoke(() => ApplyCapturePolicy());
                 }
             }
         });
@@ -334,6 +359,7 @@ public partial class App : System.Windows.Application
         {
             _hotkey?.Dispose();
             _killfeed?.Dispose();
+            _gameFocus?.Dispose();
             _power?.Dispose();
             _buffer?.Dispose();
             _thumbnails?.Dispose();
@@ -373,7 +399,7 @@ public partial class App : System.Windows.Application
 
         _buffer?.SetBufferSeconds(_config.BufferSeconds);
         _killfeed?.ApplyConfig(_config);
-        ApplyPowerPolicy();
+        ApplyCapturePolicy();
 
         try
         {
@@ -404,12 +430,18 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        if (!_buffer.IsRunning)
+        {
+            _window?.SetStatus("En attente de Valorant");
+            return;
+        }
+
         await _buffer.SaveClipAsync(_config.SaveDirectory, tag);
     }
 
     private async Task SaveHighlightAsync(HighlightClipRequest request)
     {
-        if (_buffer is null)
+        if (_buffer is null || !_buffer.IsRunning)
         {
             return;
         }

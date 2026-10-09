@@ -27,6 +27,17 @@ public static class KillfeedLineParser
     };
 
     /// <summary>
+    /// Agents souvent killers enemy collés en tête OCR.
+    /// Exclut clove/tejo/jett/raze : fréquents comme vrais pseudos victimes.
+    /// </summary>
+    private static readonly HashSet<string> LeadingEnemyAgentNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "reyna", "sage", "sova", "phoenix", "brimstone", "viper", "omen", "cypher",
+        "killjoy", "breach", "skye", "yoru", "astra", "kayo", "chamber", "neon",
+        "fade", "harbor", "gecko", "deadlock", "iso", "vyse", "waylay"
+    };
+
+    /// <summary>
     /// Parse une ligne killfeed déjà isolée : "Killer … Victim".
     /// Killer = pseudo en début de ligne ; mort = pseudo en fin.
     /// </summary>
@@ -111,43 +122,80 @@ public static class KillfeedLineParser
                 continue;
             }
 
-            for (var i = 0; i < positions.Count; i++)
+            var i = 0;
+            while (i < positions.Count)
             {
-                var start = positions[i];
-                var end = start + player.Length;
-                var nextStart = i + 1 < positions.Count ? positions[i + 1] : cleaned.Length;
+                // Série de "Rick Grimes Rick Grimes …" collés (espace seul entre les matchs)
+                var runStart = i;
+                while (i + 1 < positions.Count)
+                {
+                    var gap = cleaned[(positions[i] + player.Length)..positions[i + 1]].Trim();
+                    if (gap.Length > 0)
+                    {
+                        break;
+                    }
 
-                // 1er match : préfixe du blob. Matches suivants = nouvelles lignes killfeed collées.
-                var before = i == 0 ? cleaned[..start].Trim() : "";
-                var after = StripSpectatorTokens(cleaned[end..nextStart].Trim());
+                    i++;
+                }
+
+                var runEnd = i;
+                var runLen = runEnd - runStart + 1;
+                var start = positions[runStart];
+                var afterBegin = positions[runEnd] + player.Length;
+                var afterEnd = runEnd + 1 < positions.Count ? positions[runEnd + 1] : cleaned.Length;
+
+                var before = runStart == 0 ? cleaned[..start].Trim() : "";
                 before = TrimSpectatorPrefix(before);
+                var after = StripSpectatorTokens(cleaned[afterBegin..afterEnd].Trim());
 
-                // Kill si pseudo en tête, ou collé après un court préfixe (autre ligne killfeed / agent).
                 var glued = before.Length > 0 && IsGluedKillfeedPrefix(before);
                 var killLike = after.Length > 0 && (before.Length == 0 || glued);
                 if (killLike)
                 {
-                    // Ligne propre → 1er token ; glue "Clove Rick … Reyna" → dernier token (notre victime)
-                    var victim = ExtractVictimKey(after, preferLast: glued);
-                    if (string.IsNullOrEmpty(victim))
+                    var tokens = UsefulVictimTokens(after);
+                    if (runLen >= 2 && tokens.Count >= 2)
                     {
-                        continue;
+                        // "Rick Rick Reyna natsuki Tejo" → skip agent enemy, puis N victimes
+                        while (tokens.Count > runLen && LeadingEnemyAgentNames.Contains(tokens[0]))
+                        {
+                            tokens.RemoveAt(0);
+                        }
+
+                        var take = Math.Min(runLen, tokens.Count);
+                        foreach (var victim in tokens.Take(take))
+                        {
+                            results.Add(new KillfeedEvent(
+                                KillfeedEventKind.LocalKill,
+                                CollapseSpaces(player + " " + victim),
+                                "k:" + victim));
+                        }
+                    }
+                    else
+                    {
+                        var victim = ExtractVictimKey(after, preferLast: glued);
+                        if (!string.IsNullOrEmpty(victim))
+                        {
+                            results.Add(new KillfeedEvent(
+                                KillfeedEventKind.LocalKill,
+                                CollapseSpaces(player + " " + after),
+                                "k:" + victim));
+                        }
                     }
 
-                    var raw = CollapseSpaces(player + " " + after);
-                    results.Add(new KillfeedEvent(KillfeedEventKind.LocalKill, raw, "k:" + victim));
+                    i = runEnd + 1;
                     continue;
                 }
 
-                // Mort : besoin d'un vrai préfixe (pseudo ± arme). 1 seul token = souvent OCR inversé.
                 if (after.Length == 0 && before.Length > 0 && !IsPlayerNameFragment(before, player)
                     && before.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 2)
                 {
-                    var raw = CollapseSpaces(before + " " + player);
-                    results.Add(new KillfeedEvent(KillfeedEventKind.LocalDeath, raw, "d:" + NormalizeToken(before)));
+                    results.Add(new KillfeedEvent(
+                        KillfeedEventKind.LocalDeath,
+                        CollapseSpaces(before + " " + player),
+                        "d:" + NormalizeToken(before)));
                 }
 
-                // Long contenu avant ET après → pseudo vraiment coincé au milieu → ignorer
+                i = runEnd + 1;
             }
 
             if (results.Count == beforeCount)
@@ -264,38 +312,51 @@ public static class KillfeedLineParser
     /// </summary>
     private static string ExtractVictimKey(string afterPlayer, bool preferLast)
     {
-        var tokens = afterPlayer.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        string? first = null;
-        string? last = null;
-        foreach (var token in tokens)
+        var tokens = UsefulVictimTokens(afterPlayer);
+        if (tokens.Count == 0)
         {
-            var t = NormalizeToken(token);
-            if (t.Length < 2)
-            {
-                continue;
-            }
-
-            if (NoiseTokens.Contains(t))
-            {
-                continue;
-            }
-
-            if (t.All(char.IsDigit))
-            {
-                continue;
-            }
-
-            first ??= t;
-            last = t;
+            return "";
         }
 
         if (preferLast)
         {
-            return last ?? "";
+            return tokens[^1];
         }
 
-        return first ?? "";
+        // Un agent enemy en tête + autre token → collé ("Reyna natsuki/Tejo")
+        if (tokens.Count >= 2 && LeadingEnemyAgentNames.Contains(tokens[0]))
+        {
+            return tokens[1];
+        }
+
+        return tokens[0];
     }
+
+    private static List<string> UsefulVictimTokens(string afterPlayer)
+    {
+        var list = new List<string>();
+        foreach (var token in afterPlayer.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var t = NormalizeToken(token);
+            if (t.Length < 2 || NoiseTokens.Contains(t) || t.All(char.IsDigit))
+            {
+                continue;
+            }
+
+            // Bruit OCR HUD ("cmtg") : consonnes courtes sans voyelle
+            if (t.Length <= 4 && t.All(c => c is >= 'a' and <= 'z') && !t.Any(IsVowel))
+            {
+                continue;
+            }
+
+            list.Add(t);
+        }
+
+        return list;
+    }
+
+    private static bool IsVowel(char c) =>
+        c is 'a' or 'e' or 'i' or 'o' or 'u' or 'y';
 
     /// <summary>Préfixe court d'une autre ligne killfeed collée devant notre kill.</summary>
     private static bool IsGluedKillfeedPrefix(string before)

@@ -90,6 +90,54 @@ public class KillStreakTrackerTests
     }
 
     [Fact]
+    public void ExtractEvents_skips_enemy_reyna_glued_in_double_rick_blob()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "Rick Grimes Rick Grimes Reyna natsuki Tejo",
+            "Rick Grimes");
+
+        Assert.Contains(events, e => e.StableKey == "k:natsuki");
+        Assert.Contains(events, e => e.StableKey == "k:tejo");
+        Assert.DoesNotContain(events, e => e.StableKey == "k:reyna");
+    }
+
+    [Fact]
+    public void ExtractEvents_reads_jiao_after_spectators_noise()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "Rick Grimes SPECTATORS 1 Jiao",
+            "Rick Grimes");
+
+        Assert.Contains(events, e => e.Kind == KillfeedEventKind.LocalKill && e.StableKey == "k:jiao");
+    }
+
+    [Fact]
+    public void Ground_truth_24411_quad_natsuki_tejo_clove_jiao()
+    {
+        var frames = new[]
+        {
+            "Rick Grimes Rick Grimes natsuki Tejo",
+            "Rick Grimes natsuki Rick Grimes Tejo",
+            "Rick Grimes Rick Grimes Reyna natsuki Tejo astelghost",
+            "Rick Grimes Clove",
+            "Rick Grimes SPECTATORS 1 Clove",
+            "Rick Grimes SPECTATORS 1 Jiao",
+        };
+
+        var tracker = new KillStreakTracker();
+        var hits = new List<int>();
+        tracker.ThresholdReached += hits.Add;
+        var t0 = DateTime.UtcNow;
+        for (var i = 0; i < frames.Length; i++)
+        {
+            tracker.ObserveOcrText(frames[i], "Rick Grimes", t0.AddSeconds(i));
+        }
+
+        Assert.Equal(4, tracker.Streak);
+        Assert.Equal(new[] { 3, 4 }, hits);
+    }
+
+    [Fact]
     public void ExtractEvents_victim_is_first_token_not_next_killfeed_line()
     {
         var events = KillfeedLineParser.ExtractEvents(

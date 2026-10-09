@@ -284,4 +284,94 @@ public class KillStreakTrackerTests
         tracker.ObserveLine("me  Vandal  charlie", "me", t0.AddSeconds(20));
         Assert.Equal(1, tracker.Streak);
     }
+
+    [Fact]
+    public void Ground_truth_07031_ace_iblamehypergamy()
+    {
+        // MedalTVValorant20260826223007031 — Ace réel :
+        // Yuriox (~11s), Omen (~35s), Mrsweaty (~62s), Iso + Reyna (~69s)
+        var frames = new (string Text, double Sec)[]
+        {
+            ("iblamehypergamy Yuriox", 11),
+            ("iblamehyperga SPECTATORS 2 Omen", 35),
+            ("ibtamehyperga SPECTATORS Mrsweaty", 61),
+            ("iblamehyperga SPECTATORS Mr sweaty", 62),
+            ("iblamehypergamy Dead Yet JLT READY", 66),
+            ("VE THE SPIKE iblamehypergamy iblamehypergamy SPECTATORS Iso Reyna", 69),
+            ("iblamehypergamy INITIATIN SPECTATORS Reyna", 72),
+        };
+
+        var tracker = new KillStreakTracker();
+        var hits = new List<int>();
+        tracker.ThresholdReached += hits.Add;
+        var t0 = DateTime.UtcNow;
+        foreach (var (text, sec) in frames)
+        {
+            tracker.ObserveOcrText(text, "iblamehypergamy", t0.AddSeconds(sec));
+        }
+
+        Assert.Equal(5, tracker.Streak);
+        Assert.Contains(5, hits);
+    }
+
+    [Fact]
+    public void ExtractEvents_reads_kill_despite_spike_hud_prefix()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "VE THE SPIKE iblamehypergamy SPECTATORS Reyna",
+            "iblamehypergamy");
+
+        Assert.Contains(events, e => e.Kind == KillfeedEventKind.LocalKill && e.StableKey == "k:reyna");
+    }
+
+    [Fact]
+    public void ExtractEvents_joins_mr_sweaty_ocr_split()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "iblamehyperga SPECTATORS Mr sweaty",
+            "iblamehypergamy");
+
+        Assert.Contains(events, e => e.Kind == KillfeedEventKind.LocalKill && e.StableKey == "k:mrsweaty");
+    }
+
+    [Fact]
+    public void ExtractEvents_matches_ocr_typo_long_player_name()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "ibtamehyperga SPECTATORS Mrsweaty",
+            "iblamehypergamy");
+
+        Assert.Contains(events, e => e.Kind == KillfeedEventKind.LocalKill && e.StableKey == "k:mrsweaty");
+    }
+
+    [Fact]
+    public void ExtractEvents_ignores_party_ready_ui_as_kill()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "iblamehypergamy Dead Yet JLT READY",
+            "iblamehypergamy");
+
+        Assert.DoesNotContain(events, e => e.Kind == KillfeedEventKind.LocalKill);
+    }
+
+    [Fact]
+    public void ExtractEvents_ignores_garbled_spectators_as_victim()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "iblamehypergamy SPECTATO Mr sweaty",
+            "iblamehypergamy");
+
+        Assert.Contains(events, e => e.StableKey == "k:mrsweaty");
+        Assert.DoesNotContain(events, e => e.StableKey.Contains("spect", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ExtractEvents_ignores_initiating_hud_as_death()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "SPECTATORS Iso E INITIATINC iblamehypergamy",
+            "iblamehypergamy");
+
+        Assert.DoesNotContain(events, e => e.Kind == KillfeedEventKind.LocalDeath);
+    }
 }

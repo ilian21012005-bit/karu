@@ -23,7 +23,10 @@ public static class KillfeedLineParser
         "HEADSHOT", "HS",
         // Écran mort / combat report Valorant
         "KILLED", "KILLEO", "KILL", "BY", "OUTGOING", "INCOMING", "COMBAT", "REPORT",
-        "UNSTOPPABLE", "UNSTOPPABL", "ASSIST", "DAMAGE"
+        "UNSTOPPABLE", "UNSTOPPABL", "ASSIST", "DAMAGE",
+        // HUD / party OCR collé au killfeed
+        "READY", "SPIKE", "HAVE", "YOU", "THE", "VE", "INITIATING", "INITIATIN", "INITIATINC",
+        "INITIATIN6", "OVERHEALED", "PHASE", "JLT"
     };
 
     /// <summary>
@@ -103,7 +106,7 @@ public static class KillfeedLineParser
 
         foreach (var chunk in SplitRawChunks(fullText))
         {
-            var cleaned = CollapseSpaces(chunk);
+            var cleaned = SanitizeOcrBlob(CollapseSpaces(chunk));
             if (cleaned.Length == 0)
             {
                 continue;
@@ -112,6 +115,12 @@ public static class KillfeedLineParser
             // Écran mort / combat report — pas du killfeed
             if (Regex.IsMatch(cleaned, @"\b(?:KILLED|KILLEO)\s+BY\b|\bCOMBAT\s+REPORT\b|\bOUTGOING\b|\bINCOMING\b",
                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            {
+                continue;
+            }
+
+            // Party / agent-select UI ("Dead Yet JLT READY") — pas un kill
+            if (Regex.IsMatch(cleaned, @"\bREADY\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             {
                 continue;
             }
@@ -147,13 +156,17 @@ public static class KillfeedLineParser
 
                 var before = runStart == 0 ? cleaned[..start].Trim() : "";
                 before = TrimSpectatorPrefix(before);
+                before = TrimHudNoisePrefix(before);
                 var after = StripSpectatorTokens(cleaned[afterBegin..afterEnd].Trim());
 
                 var glued = before.Length > 0 && IsGluedKillfeedPrefix(before);
-                var killLike = after.Length > 0 && (before.Length == 0 || glued);
+                var hudPrefix = before.Length > 0 && IsHudNoisePrefix(before);
+                var killLike = after.Length > 0 && (before.Length == 0 || glued || hudPrefix);
                 if (killLike)
                 {
-                    var tokens = UsefulVictimTokens(after);
+                    var tokens = UsefulVictimTokens(after)
+                        .Where(v => !IsPlayerEchoVictim(v, player))
+                        .ToList();
                     if (runLen >= 2 && tokens.Count >= 2)
                     {
                         // "Rick Rick Reyna natsuki Tejo" → skip agent enemy, puis N victimes
@@ -173,8 +186,8 @@ public static class KillfeedLineParser
                     }
                     else
                     {
-                        var victim = ExtractVictimKey(after, preferLast: glued);
-                        if (!string.IsNullOrEmpty(victim))
+                        var victim = ExtractVictimKey(string.Join(' ', tokens), preferLast: glued);
+                        if (!string.IsNullOrEmpty(victim) && !IsPlayerEchoVictim(victim, player))
                         {
                             results.Add(new KillfeedEvent(
                                 KillfeedEventKind.LocalKill,
@@ -188,6 +201,9 @@ public static class KillfeedLineParser
                 }
 
                 if (after.Length == 0 && before.Length > 0 && !IsPlayerNameFragment(before, player)
+                    && !IsHudNoisePrefix(before)
+                    && !IsSpectatorishText(before)
+                    && UsefulVictimTokens(before).Count >= 1
                     && before.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 2)
                 {
                     results.Add(new KillfeedEvent(
@@ -199,7 +215,8 @@ public static class KillfeedLineParser
                 i = runEnd + 1;
             }
 
-            if (results.Count == beforeCount)
+            // Parse seul si aucun span joueur — évite morts fantômes HUD (INITIATING…)
+            if (results.Count == beforeCount && positions.Count == 0)
             {
                 var single = Parse(cleaned, player);
                 if (single.Kind != KillfeedEventKind.None)
@@ -215,12 +232,42 @@ public static class KillfeedLineParser
     private readonly record struct PlayerSpan(int Index, int Length);
 
     /// <summary>
-    /// Positions du pseudo (exact) + préfixes OCR tronqués pour les longs pseudos (≥10 car.).
+    /// Positions du pseudo (exact) + préfixes OCR tronqués + typos OCR (distance ≤2) pour longs pseudos.
     /// </summary>
     private static List<PlayerSpan> FindPlayerSpans(string text, string player)
     {
         var spans = new List<PlayerSpan>();
         var covered = new bool[text.Length];
+
+        void TryAdd(int idx, int length)
+        {
+            if (idx < 0 || length <= 0 || idx + length > text.Length)
+            {
+                return;
+            }
+
+            var after = idx + length;
+            var beforeOk = idx == 0 || !char.IsLetterOrDigit(text[idx - 1]);
+            var afterOk = after >= text.Length || !char.IsLetterOrDigit(text[after]);
+            if (!beforeOk || !afterOk)
+            {
+                return;
+            }
+
+            for (var k = idx; k < after; k++)
+            {
+                if (covered[k])
+                {
+                    return;
+                }
+            }
+
+            spans.Add(new PlayerSpan(idx, length));
+            for (var k = idx; k < after; k++)
+            {
+                covered[k] = true;
+            }
+        }
 
         foreach (var alias in PlayerAliases(player))
         {
@@ -233,25 +280,38 @@ public static class KillfeedLineParser
                     break;
                 }
 
-                var after = idx + alias.Length;
-                var beforeOk = idx == 0 || !char.IsLetterOrDigit(text[idx - 1]);
-                var afterOk = after >= text.Length || !char.IsLetterOrDigit(text[after]);
-                var overlaps = false;
-                for (var k = idx; k < after && !overlaps; k++)
+                TryAdd(idx, alias.Length);
+                start = idx + 1;
+            }
+        }
+
+        // Typos OCR sur longs pseudos : ibtamehyperga ≈ iblamehyperga
+        var compact = Regex.Replace(player, @"\s+", "");
+        if (compact.Length >= 12)
+        {
+            var (letters, map) = LettersWithMap(text);
+            foreach (var alias in PlayerAliases(player))
+            {
+                if (alias.Length < 10)
                 {
-                    overlaps = covered[k];
+                    continue;
                 }
 
-                if (beforeOk && afterOk && !overlaps)
+                var target = alias.ToLowerInvariant();
+                if (target.Length > letters.Length)
                 {
-                    spans.Add(new PlayerSpan(idx, alias.Length));
-                    for (var k = idx; k < after; k++)
+                    continue;
+                }
+
+                for (var i = 0; i <= letters.Length - target.Length; i++)
+                {
+                    if (EditDistanceAtMost(letters.AsSpan(i, target.Length), target.AsSpan(), 2))
                     {
-                        covered[k] = true;
+                        var origStart = map[i];
+                        var origEnd = map[i + target.Length - 1];
+                        TryAdd(origStart, origEnd - origStart + 1);
                     }
                 }
-
-                start = idx + 1;
             }
         }
 
@@ -275,7 +335,124 @@ public static class KillfeedLineParser
             {
                 yield return compact[..len];
             }
+
+            // OCR drop le premier caractère : blamehypergamy
+            if (compact.Length >= 13)
+            {
+                yield return compact[1..];
+            }
         }
+    }
+
+    private static (string Letters, int[] Map) LettersWithMap(string text)
+    {
+        var letters = new char[text.Length];
+        var map = new int[text.Length];
+        var n = 0;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsLetterOrDigit(text[i]))
+            {
+                letters[n] = char.ToLowerInvariant(text[i]);
+                map[n] = i;
+                n++;
+            }
+        }
+
+        return (new string(letters, 0, n), map.AsSpan(0, n).ToArray());
+    }
+
+    internal static bool EditDistanceAtMost(ReadOnlySpan<char> a, ReadOnlySpan<char> b, int max)
+    {
+        if (Math.Abs(a.Length - b.Length) > max)
+        {
+            return false;
+        }
+
+        if (a.Length == 0 || b.Length == 0)
+        {
+            return Math.Max(a.Length, b.Length) <= max;
+        }
+
+        // Banded DP — suffisant pour pseudos ~15 car.
+        var prev = new int[b.Length + 1];
+        var cur = new int[b.Length + 1];
+        for (var j = 0; j <= b.Length; j++)
+        {
+            prev[j] = j;
+        }
+
+        for (var i = 1; i <= a.Length; i++)
+        {
+            cur[0] = i;
+            var rowMin = cur[0];
+            for (var j = 1; j <= b.Length; j++)
+            {
+                var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                cur[j] = Math.Min(Math.Min(prev[j] + 1, cur[j - 1] + 1), prev[j - 1] + cost);
+                if (cur[j] < rowMin)
+                {
+                    rowMin = cur[j];
+                }
+            }
+
+            if (rowMin > max)
+            {
+                return false;
+            }
+
+            (prev, cur) = (cur, prev);
+        }
+
+        return prev[b.Length] <= max;
+    }
+
+    /// <summary>Enlève points OCR au milieu des mots (iblam.ehypergamy) et timers collés.</summary>
+    private static string SanitizeOcrBlob(string text)
+    {
+        if (text.Length == 0)
+        {
+            return text;
+        }
+
+        var noDots = Regex.Replace(text, @"(?<=\w)[.\u00B7•'’](?=\w)", "", RegexOptions.CultureInvariant);
+        // "i blamehypergamy" / "ib lamehypergamy" → recolle fragments du long pseudo
+        noDots = Regex.Replace(noDots, @"\bi\s+(?=blame)", "i", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        noDots = Regex.Replace(noDots, @"\bib\s+(?=lame)", "ib", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        // Timer HUD "0:35" / "0:06" en tête
+        noDots = Regex.Replace(noDots, @"^\d+:\d+\s*", "", RegexOptions.CultureInvariant);
+        return CollapseSpaces(noDots);
+    }
+
+    private static string TrimHudNoisePrefix(string before)
+    {
+        var cleaned = CollapseSpaces(before);
+        if (cleaned.Length == 0)
+        {
+            return "";
+        }
+
+        cleaned = Regex.Replace(
+            cleaned,
+            @"^(?:(?:YOU\s+)?(?:HAVE\s+)?(?:THE\s+)?SPIKE|VE\s+THE\s+SPIKE|E?\s*INITIAT\w*|OUTGOING|INCOMING)\b[\s\d:]*",
+            "",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
+        cleaned = Regex.Replace(cleaned, @"^\d+:\d+\s*", "", RegexOptions.CultureInvariant);
+        return CollapseSpaces(cleaned);
+    }
+
+    private static bool IsHudNoisePrefix(string before)
+    {
+        var cleaned = CollapseSpaces(before);
+        if (cleaned.Length == 0)
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            cleaned,
+            @"\b(?:SPIKE|INITIAT\w*|OUTGOING|INCOMING|COMBAT|REPORT)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     /// <summary>Enlève les tokens SPECTATORS sans jeter les victimes OCR collées derrière.</summary>
@@ -293,11 +470,43 @@ public static class KillfeedLineParser
                 var t = NormalizeToken(tok);
                 return t.Length >= 2
                        && !NoiseTokens.Contains(t)
-                       && !Regex.IsMatch(t, @"^(spectators?|speciators|spect|spe|spec|tators|ctators)$",
-                           RegexOptions.IgnoreCase);
+                       && !IsSpectatorishToken(t);
             });
 
         return CollapseSpaces(string.Join(' ', kept));
+    }
+
+    private static bool IsSpectatorishToken(string token)
+    {
+        var t = NormalizeToken(token);
+        if (t.Length < 3)
+        {
+            return false;
+        }
+
+        // SPECTATORS / SPECTATO / SPCTATORS / SPECIATORS / TATORS…
+        if (t.Contains("spect", StringComparison.OrdinalIgnoreCase)
+            || t.Contains("tator", StringComparison.OrdinalIgnoreCase)
+            || t.Contains("pectat", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return Regex.IsMatch(t, @"^sp[eéc]{0,3}t", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static bool IsSpectatorishText(string text)
+    {
+        var tokens = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length == 0)
+        {
+            return false;
+        }
+
+        var useful = tokens.Select(NormalizeToken)
+            .Where(t => t.Length >= 2 && !t.All(char.IsDigit) && !IsSpectatorishToken(t) && !NoiseTokens.Contains(t))
+            .ToArray();
+        return useful.Length == 0;
     }
 
     private static bool IsPlayerNameFragment(string before, string player)
@@ -311,6 +520,42 @@ public static class KillfeedLineParser
         var p = NormalizeToken(player).Replace(" ", "");
         return p.Contains(b, StringComparison.OrdinalIgnoreCase)
                || b.Contains(p, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Victime OCR qui n'est qu'un écho / typo du pseudo local.</summary>
+    private static bool IsPlayerEchoVictim(string victim, string player)
+    {
+        var b = NormalizeToken(victim);
+        var p = NormalizeToken(player).Replace(" ", "");
+        if (b.Length == 0 || p.Length == 0)
+        {
+            return true;
+        }
+
+        if (p.StartsWith(b, StringComparison.OrdinalIgnoreCase) && b.Length <= p.Length)
+        {
+            return true;
+        }
+
+        if (p.Contains(b, StringComparison.OrdinalIgnoreCase) && b.Length >= 6)
+        {
+            return true;
+        }
+
+        if (b.Length >= 10 && p.Length >= 12 && EditDistanceAtMost(b.AsSpan(), p.AsSpan(), 3))
+        {
+            return true;
+        }
+
+        foreach (var alias in PlayerAliases(player))
+        {
+            if (alias.Length >= 10 && EditDistanceAtMost(b.AsSpan(), alias.ToLowerInvariant().AsSpan(), 2))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static IEnumerable<string> SplitRawChunks(string fullText)
@@ -375,15 +620,30 @@ public static class KillfeedLineParser
 
     private static List<string> UsefulVictimTokens(string afterPlayer)
     {
-        var list = new List<string>();
-        foreach (var token in afterPlayer.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        var raw = afterPlayer.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(NormalizeToken)
+            .Where(t => t.Length >= 2 && !NoiseTokens.Contains(t) && !t.All(char.IsDigit) && !IsSpectatorishToken(t))
+            .ToList();
+
+        // OCR coupe "Mrsweaty" → "Mr sweaty" (joindre avant filtre consonnes)
+        var joined = new List<string>();
+        for (var i = 0; i < raw.Count; i++)
         {
-            var t = NormalizeToken(token);
-            if (t.Length < 2 || NoiseTokens.Contains(t) || t.All(char.IsDigit))
+            if (i + 1 < raw.Count
+                && raw[i] is "mr" or "mrs"
+                && raw[i + 1].Length >= 3)
             {
+                joined.Add(raw[i] + raw[i + 1]);
+                i++;
                 continue;
             }
 
+            joined.Add(raw[i]);
+        }
+
+        var list = new List<string>();
+        foreach (var t in joined)
+        {
             // Bruit OCR HUD ("cmtg") : consonnes courtes sans voyelle
             if (t.Length <= 4 && t.All(c => c is >= 'a' and <= 'z') && !t.Any(IsVowel))
             {
@@ -419,17 +679,41 @@ public static class KillfeedLineParser
             return "";
         }
 
-        return Regex.Replace(
+        cleaned = Regex.Replace(
             cleaned,
-            @"^(?:SPECTATORS?|SPECT|SPE|TATORS|CTATORS)\b[\s\d]*",
+            @"^(?:SPECTATORS?|SPECIATORS?|SPECTMORS|SPECTATO\w*|SPCTATORS|SPECT|SPE|TATORS|CTATORS)\b[\s\d:]*",
             "",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
+        // Relancer si OCR a laissé un fragment spect*
+        while (cleaned.Length > 0)
+        {
+            var first = cleaned.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries)[0];
+            if (!IsSpectatorishToken(first))
+            {
+                break;
+            }
+
+            cleaned = cleaned.Length > first.Length ? cleaned[(first.Length)..].Trim() : "";
+            cleaned = Regex.Replace(cleaned, @"^[\d:\s]+", "").Trim();
+        }
+
+        return CollapseSpaces(cleaned);
     }
 
     private static string NormalizeToken(string token)
     {
-        var chars = token.Where(c => char.IsLetterOrDigit(c) || c is '_' or '-').ToArray();
-        return new string(chars).ToLowerInvariant();
+        var chars = token.Where(c => char.IsLetterOrDigit(c) || c is '_' or '-').Select(c =>
+        {
+            // OCR accents courants sur SPECTATORS
+            return c switch
+            {
+                'é' or 'è' or 'ê' or 'ë' => 'e',
+                'á' or 'à' or 'â' => 'a',
+                'É' or 'È' or 'Ê' => 'e',
+                _ => char.ToLowerInvariant(c)
+            };
+        }).ToArray();
+        return new string(chars);
     }
 
     internal static string CollapseSpaces(string text)
@@ -498,6 +782,33 @@ public sealed class KillStreakTracker
         }
     }
 
+    private bool IsDuplicateStableKey(string key)
+    {
+        if (_seenKeys.Contains(key))
+        {
+            return true;
+        }
+
+        // OCR proche : mrsweaty / mrweaty
+        if (key.Length >= 8 && key.StartsWith("k:", StringComparison.Ordinal))
+        {
+            var victim = key[2..];
+            if (victim.Length >= 6)
+            {
+                foreach (var seen in _seenKeys)
+                {
+                    if (seen.Length >= 8 && seen.StartsWith("k:", StringComparison.Ordinal)
+                        && KillfeedLineParser.EditDistanceAtMost(victim.AsSpan(), seen.AsSpan(2), 2))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     private void ApplyEvent(KillfeedEvent evt, DateTime utcNow)
     {
         if (evt.Kind == KillfeedEventKind.None || string.IsNullOrEmpty(evt.StableKey))
@@ -512,10 +823,12 @@ public sealed class KillStreakTracker
             _firstKillUtc = DateTime.MinValue;
         }
 
-        if (!_seenKeys.Add(evt.StableKey))
+        if (IsDuplicateStableKey(evt.StableKey))
         {
             return;
         }
+
+        _seenKeys.Add(evt.StableKey);
 
         if (_seenKeys.Count > 40)
         {

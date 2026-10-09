@@ -28,6 +28,8 @@ public class FfmpegArgumentBuilderTests
         Assert.Contains("-safe 0", args);
         Assert.Contains(@"C:\tmp\list.txt", args);
         Assert.Contains("-c copy", args);
+        Assert.Contains("aac_adtstoasc", args);
+        Assert.Contains("faststart", args);
         Assert.Contains(@"D:\Clips\out.mp4", args);
     }
 

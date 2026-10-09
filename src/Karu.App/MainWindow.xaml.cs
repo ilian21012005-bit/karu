@@ -116,6 +116,8 @@ public partial class MainWindow : Window
     private double _userVolume = 0.8;
     private string _directory = AppConfig.DefaultSaveDirectory();
     private string _currentFolderPath = AppConfig.DefaultSaveDirectory();
+    private FileSystemWatcher? _clipWatcher;
+    private DispatcherTimer? _clipWatchDebounce;
     private Point _dragStart;
     private double _killX = 0.72;
     private double _killY = 0.02;
@@ -136,6 +138,7 @@ public partial class MainWindow : Window
         RefreshFolders();
         RefreshClips();
         UpdatePlayPauseLabel();
+        EnsureClipFolderWatcher(_directory);
     }
 
     public event Action<AppConfig>? SettingsChanged;
@@ -233,7 +236,87 @@ public partial class MainWindow : Window
         ThemeService.Apply(config.Theme);
         Background = (Brush)Application.Current.Resources["BgBrush"];
         Foreground = (Brush)Application.Current.Resources["TextBrush"];
+        EnsureClipFolderWatcher(_directory);
         _suppressEvents = false;
+    }
+
+    private void EnsureClipFolderWatcher(string directory)
+    {
+        try
+        {
+            if (!Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            if (_clipWatcher is not null
+                && string.Equals(_clipWatcher.Path, directory, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _clipWatcher?.Dispose();
+            _clipWatcher = new FileSystemWatcher(directory)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName
+                               | NotifyFilters.DirectoryName
+                               | NotifyFilters.LastWrite
+                               | NotifyFilters.CreationTime,
+                Filter = "*.*"
+            };
+            _clipWatcher.Created += OnClipFolderChanged;
+            _clipWatcher.Deleted += OnClipFolderChanged;
+            _clipWatcher.Renamed += OnClipFolderRenamed;
+            _clipWatcher.Changed += OnClipFolderChanged;
+            _clipWatcher.EnableRaisingEvents = true;
+
+            _clipWatchDebounce ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            _clipWatchDebounce.Tick -= ClipWatchDebounce_OnTick;
+            _clipWatchDebounce.Tick += ClipWatchDebounce_OnTick;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("clip watcher: " + ex.Message);
+        }
+    }
+
+    private void OnClipFolderRenamed(object sender, RenamedEventArgs e) => ScheduleClipLibraryRefresh();
+
+    private void OnClipFolderChanged(object sender, FileSystemEventArgs e)
+    {
+        // Ignorer thumbs / métadonnées bruitées
+        var name = Path.GetFileName(e.FullPath);
+        if (name.StartsWith('.')
+            || name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        ScheduleClipLibraryRefresh();
+    }
+
+    private void ScheduleClipLibraryRefresh()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_clipWatchDebounce is null)
+            {
+                return;
+            }
+
+            _clipWatchDebounce.Stop();
+            _clipWatchDebounce.Start();
+        });
+    }
+
+    private void ClipWatchDebounce_OnTick(object? sender, EventArgs e)
+    {
+        _clipWatchDebounce?.Stop();
+        RefreshFolders();
+        RefreshClips();
     }
 
     private void ThemeBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1134,6 +1217,7 @@ public partial class MainWindow : Window
             StopPlaybackHard();
             ShowDetailView(item);
             Player.Source = new Uri(item.Metadata.VideoPath);
+            ApplyUserVolume();
             StartPlayback();
             TagBox.SelectedIndex = item.Metadata.Tag switch
             {
@@ -1367,6 +1451,13 @@ public partial class MainWindow : Window
         }
     }
 
+    private void Player_OnMediaFailed(object sender, ExceptionRoutedEventArgs e)
+    {
+        AppLog.Write("media failed: " + e.ErrorException?.Message);
+        SetStatus("Lecture limitée — ouvre le clip dans l’Explorateur si le son manque.");
+        ApplyUserVolume();
+    }
+
     private void UpdatePlaybackUi()
     {
         if (!Player.NaturalDuration.HasTimeSpan)
@@ -1469,6 +1560,9 @@ public partial class MainWindow : Window
     {
         if (_allowClose)
         {
+            _clipWatcher?.Dispose();
+            _clipWatcher = null;
+            _clipWatchDebounce?.Stop();
             return;
         }
 
@@ -1486,6 +1580,7 @@ public partial class MainWindow : Window
         SettingsChanged?.Invoke(config);
         if (rootChanged)
         {
+            EnsureClipFolderWatcher(_directory);
             RefreshFolders();
             RefreshClips();
         }

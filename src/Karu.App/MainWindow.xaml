@@ -354,7 +354,8 @@
                                       Stretch="Uniform"
                                       Volume="1"
                                       MediaOpened="Player_OnMediaOpened"
-                                      MediaEnded="Player_OnMediaEnded"/>
+                                      MediaEnded="Player_OnMediaEnded"
+                                      MediaFailed="Player_OnMediaFailed"/>
                     </Border>
 
                     <!-- Flèches type Photos Windows -->

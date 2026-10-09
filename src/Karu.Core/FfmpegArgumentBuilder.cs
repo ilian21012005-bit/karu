@@ -30,7 +30,11 @@ public static class FfmpegArgumentBuilder
             "-f concat",
             "-safe 0",
             $"-i \"{concatListPath}\"",
+            "-map 0:v:0 -map 0:a:0?",
             "-c copy",
+            // AAC en MPEG-TS → MP4 : requis pour MediaElement / Media Foundation
+            "-bsf:a aac_adtstoasc",
+            "-movflags +faststart",
             $"\"{outputPath}\"");
 
     public static string BuildNvencProbeArgs() => "-hide_banner -encoders";

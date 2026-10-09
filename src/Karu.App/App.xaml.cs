@@ -224,8 +224,8 @@ public partial class App : System.Windows.Application
 
     /// <summary>
     /// Batterie prioritaire.
-    /// Buffer : démarre au focus Valorant, reste ON tant que le process tourne (F9 marche en alt-tab).
-    /// OCR killfeed : seulement fenêtre Valorant au premier plan (pas de faux clips sur une vidéo).
+    /// Buffer : ON dès que le process Valorant tourne (F9 OK en alt-tab).
+    /// OCR killfeed : seulement fenêtre Valorant au premier plan.
     /// </summary>
     private void ApplyCapturePolicy()
     {
@@ -242,6 +242,7 @@ public partial class App : System.Windows.Application
 
         var pauseBattery = _config.PauseBufferOnBattery && (_power?.IsOnBattery ?? false);
         var gameFocused = _gameFocus?.IsGameFocused ?? false;
+        var gameRunning = GameProcessNames.IsValorantRunning();
         _ = Task.Run(() =>
         {
             try
@@ -258,26 +259,15 @@ public partial class App : System.Windows.Application
                     return;
                 }
 
-                if (!gameFocused)
+                if (!gameRunning)
                 {
-                    // Stop OCR seulement — le buffer reste pour le raccourci manuel
                     _killfeed?.Stop();
-
-                    if (!GameProcessNames.IsValorantRunning())
+                    if (_buffer!.IsRunning)
                     {
-                        if (_buffer!.IsRunning)
-                        {
-                            _buffer.Stop();
-                        }
-
-                        Dispatcher.BeginInvoke(() => _window?.SetStatus("En attente de Valorant"));
-                        return;
+                        _buffer.Stop();
                     }
 
-                    Dispatcher.BeginInvoke(() =>
-                        _window?.SetStatus(_buffer!.IsRunning
-                            ? "Buffer actif"
-                            : "En attente de Valorant"));
+                    Dispatcher.BeginInvoke(() => _window?.SetStatus("En attente de Valorant"));
                     return;
                 }
 
@@ -292,8 +282,17 @@ public partial class App : System.Windows.Application
                         _buffer.Start();
                     }
 
-                    _killfeed?.Start();
-                    Dispatcher.BeginInvoke(() => _window?.SetStatus(_buffer.Status));
+                    if (gameFocused)
+                    {
+                        _killfeed?.Start();
+                        Dispatcher.BeginInvoke(() => _window?.SetStatus("Buffer actif"));
+                    }
+                    else
+                    {
+                        _killfeed?.Stop();
+                        Dispatcher.BeginInvoke(() =>
+                            _window?.SetStatus("Buffer actif · focus Valo pour la détection"));
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -455,7 +454,7 @@ public partial class App : System.Windows.Application
 
         if (!_buffer.IsRunning)
         {
-            const string msg = "Buffer inactif — ouvre Valorant une fois pour démarrer.";
+            const string msg = "Buffer inactif — lance Valorant pour démarrer le buffer.";
             _window?.SetStatus(msg);
             _tray?.ShowBalloon("Karu", msg);
             return;

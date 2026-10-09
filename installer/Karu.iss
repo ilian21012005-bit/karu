@@ -2,7 +2,7 @@
 ; Compile via tools/build-installer.ps1 ou GitHub Actions.
 
 #ifndef AppVersion
-  #define AppVersion "1.1.1"
+  #define AppVersion "1.1.2"
 #endif
 
 #ifndef PublishDir

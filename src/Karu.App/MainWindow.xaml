@@ -104,7 +104,8 @@
                                 ToolTip="Ouvrir le dossier courant"/>
                     </StackPanel>
                     <ListBox x:Name="FolderList"
-                             Height="40"
+                             Height="44"
+                             MinHeight="44"
                              Background="Transparent"
                              BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
@@ -113,7 +114,8 @@
                              SelectionChanged="FolderList_OnSelectionChanged"
                              DragOver="FolderList_OnDragOver"
                              DragLeave="FolderList_OnDragLeave"
-                             Drop="FolderList_OnDrop">
+                             Drop="FolderList_OnDrop"
+                             ToolTip="Glisse un clip ici pour le déplacer">
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Orientation="Horizontal"/>
@@ -181,7 +183,25 @@
                          ScrollViewer.VerticalScrollBarVisibility="Auto"
                          PreviewMouseMove="ClipList_OnPreviewMouseMove"
                          PreviewMouseLeftButtonDown="ClipList_OnPreviewMouseLeftButtonDown"
+                         PreviewMouseLeftButtonUp="ClipList_OnPreviewMouseLeftButtonUp"
+                         PreviewMouseRightButtonDown="ClipList_OnPreviewMouseRightButtonDown"
                          SelectionChanged="ClipList_OnSelectionChanged">
+                    <ListBox.ContextMenu>
+                        <ContextMenu Opened="ClipContextMenu_OnOpened">
+                            <MenuItem Header="Ouvrir"
+                                      Click="OpenSelectedClip_OnClick"/>
+                            <MenuItem x:Name="MoveToMenu" Header="Déplacer vers"/>
+                            <Separator/>
+                            <MenuItem Header="Afficher dans Explorer"
+                                      Click="RevealClip_OnClick"/>
+                            <MenuItem Header="Copier le chemin"
+                                      Click="CopyPath_OnClick"/>
+                            <Separator/>
+                            <MenuItem Header="Supprimer"
+                                      Click="Delete_OnClick"
+                                      Foreground="{DynamicResource DangerBrush}"/>
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
                             <WrapPanel/>

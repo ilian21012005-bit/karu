@@ -103,8 +103,10 @@ public partial class MainWindow : Window
     private bool _allowClose;
     private bool _suppressEvents;
     private bool _isDraggingClip;
+    private bool _dragOccurred;
     private bool _isSeeking;
     private bool _isPlaying;
+    private ClipListItem? _pressClip;
     private FolderListItem? _dropHighlight;
     private long _lastDragOverTicks;
     private const int MaxThumbCacheEntries = 64;
@@ -491,11 +493,60 @@ public partial class MainWindow : Window
     private void ClipList_OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         _dragStart = e.GetPosition(null);
+        _dragOccurred = false;
+        _pressClip = null;
+
+        // Ne pas démarrer un drag depuis le bouton favori.
+        if (e.OriginalSource is DependencyObject src && FindAncestor<Button>(src) is not null)
+        {
+            return;
+        }
+
+        _pressClip = FindClipItemFromSource(e.OriginalSource);
+        if (_pressClip is not null)
+        {
+            // Sélection sans ouvrir le détail (laisse le drag fonctionner).
+            _suppressEvents = true;
+            ClipList.SelectedItem = _pressClip;
+            _suppressEvents = false;
+        }
+    }
+
+    private void ClipList_OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_dragOccurred || _pressClip is null || _isDraggingClip)
+        {
+            _pressClip = null;
+            return;
+        }
+
+        if (e.OriginalSource is DependencyObject src && FindAncestor<Button>(src) is not null)
+        {
+            _pressClip = null;
+            return;
+        }
+
+        var item = _pressClip;
+        _pressClip = null;
+        OpenClipDetail(item);
+    }
+
+    private void ClipList_OnPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var item = FindClipItemFromSource(e.OriginalSource);
+        if (item is null)
+        {
+            return;
+        }
+
+        _suppressEvents = true;
+        ClipList.SelectedItem = item;
+        _suppressEvents = false;
     }
 
     private void ClipList_OnPreviewMouseMove(object sender, MouseEventArgs e)
     {
-        if (e.LeftButton != MouseButtonState.Pressed || ClipList.SelectedItem is not ClipListItem item)
+        if (e.LeftButton != MouseButtonState.Pressed || _pressClip is null || _isDraggingClip)
         {
             return;
         }
@@ -507,15 +558,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Ne pas lancer un drag depuis l'etoile favori.
-        if (e.OriginalSource is DependencyObject src &&
-            FindAncestor<Button>(src) is not null)
+        if (e.OriginalSource is DependencyObject src && FindAncestor<Button>(src) is not null)
         {
             return;
         }
 
-        var path = item.Metadata.VideoPath;
+        var path = _pressClip.Metadata.VideoPath;
         var data = new DataObject(DataFormats.FileDrop, new[] { path });
+        _dragOccurred = true;
         _isDraggingClip = true;
         try
         {
@@ -524,8 +574,77 @@ public partial class MainWindow : Window
         finally
         {
             _isDraggingClip = false;
+            _pressClip = null;
             ClearDropHighlight();
         }
+    }
+
+    private void ClipContextMenu_OnOpened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ContextMenu menu)
+        {
+            return;
+        }
+
+        var moveTo = menu.Items.OfType<MenuItem>()
+            .FirstOrDefault(m => string.Equals(m.Name, "MoveToMenu", StringComparison.Ordinal)
+                                 || (m.Header as string) == "Déplacer vers");
+        if (moveTo is null)
+        {
+            return;
+        }
+
+        moveTo.Items.Clear();
+        var selected = ClipList.SelectedItem as ClipListItem;
+        if (selected is null)
+        {
+            moveTo.IsEnabled = false;
+            return;
+        }
+
+        moveTo.IsEnabled = true;
+        var currentDir = Path.GetDirectoryName(selected.Metadata.VideoPath) ?? "";
+        foreach (var folder in _folders)
+        {
+            var dest = folder.Folder.IsRoot ? _directory : folder.Folder.FullPath;
+            var alreadyThere = false;
+            try
+            {
+                alreadyThere = string.Equals(
+                    Path.GetFullPath(currentDir).TrimEnd('\\'),
+                    Path.GetFullPath(dest).TrimEnd('\\'),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            var mi = new MenuItem
+            {
+                Header = folder.Folder.IsRoot ? "Tous les clips (racine)" : folder.Name,
+                Tag = folder,
+                IsEnabled = !alreadyThere
+            };
+            mi.Click += MoveToFolderMenu_OnClick;
+            moveTo.Items.Add(mi);
+        }
+
+        if (moveTo.Items.Count == 0)
+        {
+            moveTo.Items.Add(new MenuItem { Header = "(aucun dossier)", IsEnabled = false });
+        }
+    }
+
+    private async void MoveToFolderMenu_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: FolderListItem target } ||
+            ClipList.SelectedItem is not ClipListItem item)
+        {
+            return;
+        }
+
+        await MoveClipsAsync(new[] { item.Metadata.VideoPath }, target).ConfigureAwait(true);
     }
 
     private void FolderList_OnDragOver(object sender, DragEventArgs e)
@@ -533,7 +652,6 @@ public partial class MainWindow : Window
         e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Move : DragDropEffects.None;
         e.Handled = true;
 
-        // Throttle ~30 fps pour le hit-test.
         var now = Environment.TickCount64;
         if (now - _lastDragOverTicks < 32)
         {
@@ -550,11 +668,11 @@ public partial class MainWindow : Window
 
         ClearDropHighlight();
         _dropHighlight = item;
-        if (FolderList.ItemContainerGenerator.ContainerFromItem(item) is ListBoxItem container)
+        if (FolderList.ItemContainerGenerator.ContainerFromItem(item) is ListBoxItem container &&
+            FindDescendant<Border>(container) is { } chip)
         {
-            container.Opacity = 0.85;
-            container.BorderBrush = (Brush)FindResource("AccentBrush");
-            container.BorderThickness = new Thickness(1);
+            chip.BorderBrush = (Brush)FindResource("AccentBrush");
+            chip.Background = (Brush)FindResource("AccentDimBrush");
         }
     }
 
@@ -589,25 +707,39 @@ public partial class MainWindow : Window
                 f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) &&
                 PathSafety.IsUnderRoot(_directory, f))
             .ToArray();
+        if (files.Length == 0)
+        {
+            return;
+        }
+
+        await MoveClipsAsync(files, target).ConfigureAwait(true);
+    }
+
+    private async Task MoveClipsAsync(IReadOnlyList<string> files, FolderListItem target)
+    {
         var dest = target.Folder.IsRoot ? _directory : target.Folder.FullPath;
-        if (!PathSafety.IsUnderRoot(_directory, dest) || files.Length == 0)
+        if (!PathSafety.IsUnderRoot(_directory, dest) || files.Count == 0)
         {
             return;
         }
 
         var root = _directory;
-        var folderName = target.Folder.Name;
-        SetStatus("Deplacement…");
+        var folderName = target.Folder.IsRoot ? "Tous les clips" : target.Folder.Name;
+        SetStatus("Déplacement…");
 
-        // Toujours liberer le MediaElement : un mp4 verrouille rend File.Move tres lent.
+        var wasDetail = DetailView.Visibility == Visibility.Visible;
         StopPlaybackHard();
         Player.Source = null;
+        if (wasDetail)
+        {
+            ShowClipsView();
+        }
 
         try
         {
             var moved = await Task.Run(() =>
             {
-                var results = new List<string>(files.Length);
+                var results = new List<string>(files.Count);
                 foreach (var file in files)
                 {
                     results.Add(_library.MoveClip(root, file, dest));
@@ -616,14 +748,13 @@ public partial class MainWindow : Window
                 return results;
             }).ConfigureAwait(true);
 
-            // Mise a jour UI locale : pas de RefreshClips complet (miniatures = freeze).
             ApplyMoveToList(files, moved, target);
             SetStatus($"Clip déplacé vers « {folderName} ».");
         }
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "Karu", MessageBoxButton.OK, MessageBoxImage.Warning);
-            SetStatus("Deplacement echoue.");
+            SetStatus("Déplacement échoué.");
             RefreshClips();
         }
     }
@@ -719,11 +850,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (FolderList.ItemContainerGenerator.ContainerFromItem(_dropHighlight) is ListBoxItem container)
+        if (FolderList.ItemContainerGenerator.ContainerFromItem(_dropHighlight) is ListBoxItem container &&
+            FindDescendant<Border>(container) is { } chip)
         {
-            container.ClearValue(UIElement.OpacityProperty);
-            container.ClearValue(Control.BorderBrushProperty);
-            container.ClearValue(Control.BorderThicknessProperty);
+            chip.ClearValue(Border.BorderBrushProperty);
+            chip.ClearValue(Border.BackgroundProperty);
+            chip.SetResourceReference(Border.BorderBrushProperty, "BorderBrush");
+            chip.SetResourceReference(Border.BackgroundProperty, "PanelBrush");
         }
 
         _dropHighlight = null;
@@ -736,6 +869,47 @@ public partial class MainWindow : Window
             if (current is T match)
             {
                 return match;
+            }
+
+            current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            var nested = FindDescendant<T>(child);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
+    }
+
+    private static ClipListItem? FindClipItemFromSource(object? source)
+    {
+        if (source is not DependencyObject current)
+        {
+            return null;
+        }
+
+        while (current is not null)
+        {
+            if (current is FrameworkElement { DataContext: ClipListItem item })
+            {
+                return item;
             }
 
             current = System.Windows.Media.VisualTreeHelper.GetParent(current);
@@ -851,14 +1025,15 @@ public partial class MainWindow : Window
 
     private void ClipList_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_suppressEvents || ClipList.SelectedItem is not ClipListItem item)
-        {
-            return;
-        }
+        // Ouverture détail gérée au MouseUp (pour ne pas casser le drag & drop).
+    }
 
+    private void OpenClipDetail(ClipListItem item)
+    {
         try
         {
             _suppressEvents = true;
+            ClipList.SelectedItem = item;
             StopPlaybackHard();
             ShowDetailView(item);
             Player.Source = new Uri(item.Metadata.VideoPath);
@@ -876,6 +1051,14 @@ public partial class MainWindow : Window
         {
             _suppressEvents = false;
             SetStatus("Impossible de lire ce clip.");
+        }
+    }
+
+    private void OpenSelectedClip_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (ClipList.SelectedItem is ClipListItem item)
+        {
+            OpenClipDetail(item);
         }
     }
 

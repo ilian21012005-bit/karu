@@ -11,7 +11,8 @@
         Background="{DynamicResource BgBrush}"
         Foreground="{DynamicResource TextBrush}"
         FontFamily="Segoe UI"
-        Icon="pack://application:,,,/Assets/karu-logo.png">
+        Icon="pack://application:,,,/Assets/karu-logo.png"
+        PreviewKeyDown="Window_OnPreviewKeyDown">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="64"/>
@@ -328,6 +329,13 @@
                             Style="{StaticResource IconButton}"
                             Click="BackToLibrary_OnClick"
                             Margin="0,0,14,0"/>
+                    <TextBlock x:Name="DetailIndexText"
+                               DockPanel.Dock="Right"
+                               Foreground="{DynamicResource MutedBrush}"
+                               FontSize="13"
+                               VerticalAlignment="Center"
+                               Margin="14,0,0,0"
+                               Text="1 / 1"/>
                     <TextBlock x:Name="DetailTitle"
                                FontSize="18"
                                FontWeight="SemiBold"
@@ -335,19 +343,68 @@
                                TextTrimming="CharacterEllipsis"/>
                 </DockPanel>
 
-                <Border Grid.Row="1"
-                        Background="{DynamicResource VideoBgBrush}"
-                        CornerRadius="12"
-                        ClipToBounds="True">
-                    <MediaElement x:Name="Player"
-                                  LoadedBehavior="Manual"
-                                  UnloadedBehavior="Stop"
-                                  ScrubbingEnabled="True"
-                                  Stretch="Uniform"
-                                  Volume="1"
-                                  MediaOpened="Player_OnMediaOpened"
-                                  MediaEnded="Player_OnMediaEnded"/>
-                </Border>
+                <Grid Grid.Row="1">
+                    <Border Background="{DynamicResource VideoBgBrush}"
+                            CornerRadius="12"
+                            ClipToBounds="True">
+                        <MediaElement x:Name="Player"
+                                      LoadedBehavior="Manual"
+                                      UnloadedBehavior="Stop"
+                                      ScrubbingEnabled="True"
+                                      Stretch="Uniform"
+                                      Volume="1"
+                                      MediaOpened="Player_OnMediaOpened"
+                                      MediaEnded="Player_OnMediaEnded"/>
+                    </Border>
+
+                    <!-- Flèches type Photos Windows -->
+                    <Button x:Name="PrevClipButton"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Margin="12,0,0,0"
+                            Width="48" Height="48"
+                            FontSize="22"
+                            Content="&#x2039;"
+                            ToolTip="Clip précédent (←)"
+                            Click="PrevClip_OnClick"
+                            Opacity="0.92">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                <Setter Property="Background" Value="#99000000"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter Property="Opacity" Value="0.25"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button x:Name="NextClipButton"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Margin="0,0,12,0"
+                            Width="48" Height="48"
+                            FontSize="22"
+                            Content="&#x203A;"
+                            ToolTip="Clip suivant (→)"
+                            Click="NextClip_OnClick"
+                            Opacity="0.92">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                <Setter Property="Background" Value="#99000000"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter Property="Opacity" Value="0.25"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </Grid>
 
                 <Border Grid.Row="2"
                         Margin="0,14,0,0"

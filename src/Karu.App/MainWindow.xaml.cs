@@ -422,6 +422,103 @@ public partial class MainWindow : Window
         DetailView.Visibility = Visibility.Visible;
         NavClipsButton.Style = (Style)FindResource("SideRailButtonActive");
         NavSettingsButton.Style = (Style)FindResource("SideRailButton");
+        UpdateDetailNavUi();
+    }
+
+    private void PrevClip_OnClick(object sender, RoutedEventArgs e) => NavigateDetail(-1);
+
+    private void NextClip_OnClick(object sender, RoutedEventArgs e) => NavigateDetail(1);
+
+    private void Window_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (DetailView.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        // Ne pas voler les touches dans un champ texte (réglages / etc.).
+        if (Keyboard.FocusedElement is TextBox or PasswordBox or ComboBox)
+        {
+            return;
+        }
+
+        if (e.Key is Key.Left or Key.OemComma)
+        {
+            NavigateDetail(-1);
+            e.Handled = true;
+        }
+        else if (e.Key is Key.Right or Key.OemPeriod)
+        {
+            NavigateDetail(1);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            ShowClipsView();
+            e.Handled = true;
+        }
+    }
+
+    private void NavigateDetail(int delta)
+    {
+        if (DetailView.Visibility != Visibility.Visible || _items.Count == 0)
+        {
+            return;
+        }
+
+        var current = ClipList.SelectedItem as ClipListItem
+                      ?? _items.FirstOrDefault(i =>
+                          string.Equals(i.DisplayName, DetailTitle.Text, StringComparison.Ordinal));
+        var index = current is null ? -1 : _items.IndexOf(current);
+        if (index < 0)
+        {
+            // Retombe sur le chemin du player si possible.
+            var src = Player.Source?.LocalPath;
+            if (!string.IsNullOrWhiteSpace(src))
+            {
+                index = _items.ToList().FindIndex(i =>
+                    string.Equals(i.Metadata.VideoPath, src, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        if (index < 0)
+        {
+            return;
+        }
+
+        var next = index + delta;
+        if (next < 0 || next >= _items.Count)
+        {
+            return;
+        }
+
+        OpenClipDetail(_items[next]);
+    }
+
+    private void UpdateDetailNavUi()
+    {
+        if (DetailView.Visibility != Visibility.Visible || _items.Count == 0)
+        {
+            DetailIndexText.Text = "";
+            PrevClipButton.IsEnabled = false;
+            NextClipButton.IsEnabled = false;
+            return;
+        }
+
+        var index = -1;
+        if (ClipList.SelectedItem is ClipListItem selected)
+        {
+            index = _items.IndexOf(selected);
+        }
+
+        if (index < 0)
+        {
+            index = 0;
+        }
+
+        DetailIndexText.Text = $"{index + 1} / {_items.Count}";
+        PrevClipButton.IsEnabled = index > 0;
+        NextClipButton.IsEnabled = index < _items.Count - 1;
     }
 
     private void NewFolder_OnClick(object sender, RoutedEventArgs e)
@@ -1045,6 +1142,7 @@ public partial class MainWindow : Window
                 ClipTag.Ace => 3,
                 _ => 0
             };
+            UpdateDetailNavUi();
             _suppressEvents = false;
         }
         catch

@@ -61,7 +61,8 @@ public static class KillfeedLineParser
         }
 
         var before = idx == 0 ? "" : cleaned[..idx].Trim();
-        var after = cleaned[(idx + player.Length)..].Trim();
+        var after = StripSpectatorTokens(cleaned[(idx + player.Length)..].Trim());
+        before = TrimSpectatorPrefix(before);
 
         // Pseudo au début (+ victime) → kill local
         if (before.Length == 0 && after.Length > 0)
@@ -116,7 +117,7 @@ public static class KillfeedLineParser
             }
 
             var beforeCount = results.Count;
-            var positions = FindPlayerPositions(cleaned, player);
+            var positions = FindPlayerSpans(cleaned, player);
             if (positions.Count == 0)
             {
                 continue;
@@ -129,7 +130,7 @@ public static class KillfeedLineParser
                 var runStart = i;
                 while (i + 1 < positions.Count)
                 {
-                    var gap = cleaned[(positions[i] + player.Length)..positions[i + 1]].Trim();
+                    var gap = cleaned[(positions[i].Index + positions[i].Length)..positions[i + 1].Index].Trim();
                     if (gap.Length > 0)
                     {
                         break;
@@ -140,9 +141,9 @@ public static class KillfeedLineParser
 
                 var runEnd = i;
                 var runLen = runEnd - runStart + 1;
-                var start = positions[runStart];
-                var afterBegin = positions[runEnd] + player.Length;
-                var afterEnd = runEnd + 1 < positions.Count ? positions[runEnd + 1] : cleaned.Length;
+                var start = positions[runStart].Index;
+                var afterBegin = positions[runEnd].Index + positions[runEnd].Length;
+                var afterEnd = runEnd + 1 < positions.Count ? positions[runEnd + 1].Index : cleaned.Length;
 
                 var before = runStart == 0 ? cleaned[..start].Trim() : "";
                 before = TrimSpectatorPrefix(before);
@@ -211,30 +212,70 @@ public static class KillfeedLineParser
         return results;
     }
 
-    private static List<int> FindPlayerPositions(string text, string player)
+    private readonly record struct PlayerSpan(int Index, int Length);
+
+    /// <summary>
+    /// Positions du pseudo (exact) + préfixes OCR tronqués pour les longs pseudos (≥10 car.).
+    /// </summary>
+    private static List<PlayerSpan> FindPlayerSpans(string text, string player)
     {
-        var list = new List<int>();
-        var start = 0;
-        while (start <= text.Length - player.Length)
+        var spans = new List<PlayerSpan>();
+        var covered = new bool[text.Length];
+
+        foreach (var alias in PlayerAliases(player))
         {
-            var idx = text.IndexOf(player, start, StringComparison.OrdinalIgnoreCase);
-            if (idx < 0)
+            var start = 0;
+            while (start <= text.Length - alias.Length)
             {
-                break;
-            }
+                var idx = text.IndexOf(alias, start, StringComparison.OrdinalIgnoreCase);
+                if (idx < 0)
+                {
+                    break;
+                }
 
-            var after = idx + player.Length;
-            var beforeOk = idx == 0 || !char.IsLetterOrDigit(text[idx - 1]);
-            var afterOk = after >= text.Length || !char.IsLetterOrDigit(text[after]);
-            if (beforeOk && afterOk)
-            {
-                list.Add(idx);
-            }
+                var after = idx + alias.Length;
+                var beforeOk = idx == 0 || !char.IsLetterOrDigit(text[idx - 1]);
+                var afterOk = after >= text.Length || !char.IsLetterOrDigit(text[after]);
+                var overlaps = false;
+                for (var k = idx; k < after && !overlaps; k++)
+                {
+                    overlaps = covered[k];
+                }
 
-            start = idx + 1;
+                if (beforeOk && afterOk && !overlaps)
+                {
+                    spans.Add(new PlayerSpan(idx, alias.Length));
+                    for (var k = idx; k < after; k++)
+                    {
+                        covered[k] = true;
+                    }
+                }
+
+                start = idx + 1;
+            }
         }
 
-        return list;
+        spans.Sort((a, b) => a.Index.CompareTo(b.Index));
+        return spans;
+    }
+
+    private static IEnumerable<string> PlayerAliases(string player)
+    {
+        yield return player;
+        var compact = Regex.Replace(player, @"\s+", "");
+        if (!compact.Equals(player, StringComparison.OrdinalIgnoreCase))
+        {
+            yield return compact;
+        }
+
+        // OCR tronque souvent les longs pseudos : iblamehyperga / iblamehyperg
+        if (compact.Length >= 12)
+        {
+            for (var len = compact.Length - 1; len >= 10; len--)
+            {
+                yield return compact[..len];
+            }
+        }
     }
 
     /// <summary>Enlève les tokens SPECTATORS sans jeter les victimes OCR collées derrière.</summary>

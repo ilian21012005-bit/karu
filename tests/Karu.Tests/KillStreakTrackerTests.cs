@@ -112,6 +112,26 @@ public class KillStreakTrackerTests
     }
 
     [Fact]
+    public void ExtractEvents_matches_truncated_long_player_name()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "iblamehyperga SPECTATORS 2 Omen",
+            "iblamehypergamy");
+
+        Assert.Contains(events, e => e.Kind == KillfeedEventKind.LocalKill && e.StableKey == "k:omen");
+    }
+
+    [Fact]
+    public void ExtractEvents_ignores_spectators_prefix_as_death()
+    {
+        var events = KillfeedLineParser.ExtractEvents(
+            "SPECTATORS 2 iblamehypergamy",
+            "iblamehypergamy");
+
+        Assert.DoesNotContain(events, e => e.Kind == KillfeedEventKind.LocalDeath);
+    }
+
+    [Fact]
     public void Ground_truth_24411_quad_natsuki_tejo_clove_jiao()
     {
         var frames = new[]

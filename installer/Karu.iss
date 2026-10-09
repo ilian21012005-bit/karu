@@ -15,7 +15,7 @@
 
 #define MyAppName "Karu"
 #define MyAppPublisher "Karu"
-#define MyAppURL "https://github.com/ilian21012005-bit/clip-buffer"
+#define MyAppURL "https://github.com/ilian21012005-bit/karu"
 #define MyAppExeName "Karu.exe"
 
 [Setup]
@@ -33,7 +33,7 @@ AllowNoIcons=yes
 LicenseFile=..\third_party\ffmpeg\LICENSE.txt
 OutputDir={#OutputDir}
 OutputBaseFilename=Karu-Setup-{#AppVersion}
-SetupIconFile=..\src\ClipBuffer.App\Assets\karu.ico
+SetupIconFile=..\src\Karu.App\Assets\karu.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
 SolidCompression=yes

@@ -5,7 +5,7 @@ Encodeur **NVIDIA NVENC** : la puce dédiée travaille, le jeu n’est presque p
 
 ## Télécharger / Installer (Windows)
 
-1. Va sur **[Releases](https://github.com/ilian21012005-bit/clip-buffer/releases)**
+1. Va sur **[Releases](https://github.com/ilian21012005-bit/karu/releases)**
 2. Télécharge **`Karu-Setup-x.y.z.exe`**
 3. Lance le setup (assistant en français) → Suivant → Installer
 4. Ouvre **Karu** depuis le Bureau ou le menu Démarrer
@@ -31,9 +31,9 @@ Désinstallation : Paramètres Windows → Applications → Karu, ou le raccourc
 4. **Highlights auto** : active le killfeed, entre ton pseudo exact, coche Ace / Triple / Quad
 5. Fermer la fenêtre = reste en barre d’état ; **Quitter** depuis l’icône tray = arrêt réel
 
-Réglages : `%AppData%\ClipBuffer\config.json`  
-Clips : `Vidéos\ClipBuffer` (métadonnées dans un dossier `.karu`)  
-Buffer temp : `%LocalAppData%\ClipBuffer\buffer`
+Réglages : `%AppData%\Karu\config.json`  
+Clips : `Vidéos\Karu` (métadonnées dans un dossier `.karu`)  
+Buffer temp : `%LocalAppData%\Karu\buffer`
 
 ## Build développeur
 
@@ -42,7 +42,7 @@ Buffer temp : `%LocalAppData%\ClipBuffer\buffer`
 powershell -File tools/download-ffmpeg.ps1
 
 dotnet test
-dotnet build src/ClipBuffer.App/ClipBuffer.App.csproj -c Release
+dotnet build src/Karu.App/Karu.App.csproj -c Release
 ```
 
 ### Produire l’installateur localement

@@ -10,7 +10,7 @@ $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $publishDir = Join-Path $root "artifacts\publish"
 $installerOut = Join-Path $root "artifacts\installer"
 $iss = Join-Path $root "installer\Karu.iss"
-$appProj = Join-Path $root "src\ClipBuffer.App\ClipBuffer.App.csproj"
+$appProj = Join-Path $root "src\Karu.App\Karu.App.csproj"
 
 Write-Host "==> Karu installer build v$Version" -ForegroundColor Cyan
 

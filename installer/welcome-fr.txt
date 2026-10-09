@@ -14,4 +14,4 @@ Après installation :
 FFmpeg (GPL) est inclus pour l’enregistrement. Voir la licence affichée à l’étape suivante.
 
 Site / mises à jour :
-https://github.com/ilian21012005-bit/clip-buffer/releases
+https://github.com/ilian21012005-bit/karu/releases

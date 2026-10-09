@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>Karu.App</RootNamespace>
+    <AssemblyName>Karu</AssemblyName>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <ApplicationTitle>Karu</ApplicationTitle>
+    <ApplicationIcon>Assets\karu.ico</ApplicationIcon>
+    <Product>Karu</Product>
+    <AssemblyTitle>Karu</AssemblyTitle>
+    <Company>Karu</Company>
+    <Authors>Karu</Authors>
+    <Copyright>Copyright (c) Karu</Copyright>
+    <Description>Karu — replay buffer Valorant (NVENC, bibliothèque de clips)</Description>
+    <NeutralLanguage>fr-FR</NeutralLanguage>
+    <!-- Prêt pour signature Authenticode : dotnet build /p:SignToolPath=... ou signtool post-build -->
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\karu-logo.png" />
+    <Content Include="Assets\karu.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Karu.Core\Karu.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <Using Include="System.IO" />
+    <Using Include="System.Diagnostics" />
+    <Using Include="System.Threading" />
+    <Using Include="System.Threading.Tasks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\tools\ffmpeg\ffmpeg.exe"
+          Link="ffmpeg\ffmpeg.exe"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\tools\ffmpeg\ffmpeg.exe')" />
+    <None Include="..\..\third_party\ffmpeg\LICENSE.txt"
+          Link="ffmpeg\LICENSE.txt"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\tools\ffmpeg\COPYING*"
+          Link="ffmpeg\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\tools\ffmpeg\COPYING')" />
+  </ItemGroup>
+
+</Project>

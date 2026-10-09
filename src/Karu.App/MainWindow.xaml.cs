@@ -21,6 +21,9 @@ public sealed class ClipListItem : INotifyPropertyChanged
     public string DisplayName => Metadata.DisplayName;
     public string TagBadge => TagToLabel(Metadata.Tag);
     public string Subtitle => Metadata.CreatedAt.ToString("dd MMM · HH:mm");
+    public string AgeLabel => FormatAge(Metadata.CreatedAt);
+    public string SizeLabel => FormatSize(Metadata.VideoPath);
+    public string CardMeta => $"{SizeLabel} · {Subtitle}";
     public string FavoriteGlyph => Metadata.Favorite ? "\u2605" : "\u2606";
     public string FavoriteToolTip => Metadata.Favorite ? "Retirer des favoris" : "Ajouter aux favoris";
 
@@ -57,6 +60,31 @@ public sealed class ClipListItem : INotifyPropertyChanged
         ClipTag.Ace => "Ace",
         _ => "Manuel"
     };
+
+    private static string FormatAge(DateTime when)
+    {
+        var span = DateTime.Now - when;
+        if (span.TotalMinutes < 1) return "à l'instant";
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes} min";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours} h";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays} j";
+        return when.ToString("dd MMM");
+    }
+
+    private static string FormatSize(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return "—";
+            var bytes = new FileInfo(path).Length;
+            if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0} Ko";
+            return $"{bytes / (1024.0 * 1024.0):0.#} Mo";
+        }
+        catch
+        {
+            return "—";
+        }
+    }
 }
 
 public sealed class FolderListItem
@@ -357,20 +385,41 @@ public partial class MainWindow : Window
 
     private void NavSettings_OnClick(object sender, RoutedEventArgs e) => ShowSettingsView();
 
+    private void BackToLibrary_OnClick(object sender, RoutedEventArgs e) => ShowClipsView();
+
     private void ShowClipsView()
     {
+        StopPlaybackHard();
+        Player.Source = null;
+        DetailView.Visibility = Visibility.Collapsed;
         ClipsView.Visibility = Visibility.Visible;
         SettingsView.Visibility = Visibility.Collapsed;
-        NavClipsButton.Style = (Style)FindResource("NavButtonActive");
-        NavSettingsButton.Style = (Style)FindResource("NavButton");
+        NavClipsButton.Style = (Style)FindResource("SideRailButtonActive");
+        NavSettingsButton.Style = (Style)FindResource("SideRailButton");
+        _suppressEvents = true;
+        ClipList.SelectedItem = null;
+        _suppressEvents = false;
     }
 
     private void ShowSettingsView()
     {
+        StopPlaybackHard();
+        Player.Source = null;
+        DetailView.Visibility = Visibility.Collapsed;
         ClipsView.Visibility = Visibility.Collapsed;
         SettingsView.Visibility = Visibility.Visible;
-        NavClipsButton.Style = (Style)FindResource("NavButton");
-        NavSettingsButton.Style = (Style)FindResource("NavButtonActive");
+        NavClipsButton.Style = (Style)FindResource("SideRailButton");
+        NavSettingsButton.Style = (Style)FindResource("SideRailButtonActive");
+    }
+
+    private void ShowDetailView(ClipListItem item)
+    {
+        DetailTitle.Text = item.DisplayName;
+        ClipsView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Collapsed;
+        DetailView.Visibility = Visibility.Visible;
+        NavClipsButton.Style = (Style)FindResource("SideRailButtonActive");
+        NavSettingsButton.Style = (Style)FindResource("SideRailButton");
     }
 
     private void NewFolder_OnClick(object sender, RoutedEventArgs e)
@@ -802,7 +851,7 @@ public partial class MainWindow : Window
 
     private void ClipList_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ClipList.SelectedItem is not ClipListItem item)
+        if (_suppressEvents || ClipList.SelectedItem is not ClipListItem item)
         {
             return;
         }
@@ -811,6 +860,7 @@ public partial class MainWindow : Window
         {
             _suppressEvents = true;
             StopPlaybackHard();
+            ShowDetailView(item);
             Player.Source = new Uri(item.Metadata.VideoPath);
             StartPlayback();
             TagBox.SelectedIndex = item.Metadata.Tag switch
@@ -826,6 +876,39 @@ public partial class MainWindow : Window
         {
             _suppressEvents = false;
             SetStatus("Impossible de lire ce clip.");
+        }
+    }
+
+    private void RevealClip_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (ClipList.SelectedItem is not ClipListItem item || !File.Exists(item.Metadata.VideoPath))
+        {
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = $"/select,\"{item.Metadata.VideoPath}\"",
+            UseShellExecute = true
+        });
+    }
+
+    private void CopyPath_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (ClipList.SelectedItem is not ClipListItem item)
+        {
+            return;
+        }
+
+        try
+        {
+            Clipboard.SetText(item.Metadata.VideoPath);
+            SetStatus("Chemin copié.");
+        }
+        catch
+        {
+            SetStatus("Impossible de copier le chemin.");
         }
     }
 
@@ -1051,6 +1134,7 @@ public partial class MainWindow : Window
         StopPlaybackHard();
         Player.Source = null;
         _library.Delete(_directory, item.Metadata.VideoPath);
+        ShowClipsView();
         RefreshClips();
     }
 
@@ -1066,8 +1150,27 @@ public partial class MainWindow : Window
             _ => ClipTag.Manual
         };
         if (item.Metadata.Tag == tag) return;
-        _library.SetTag(item.Metadata.VideoPath, tag);
+        var path = item.Metadata.VideoPath;
+        _library.SetTag(path, tag);
+        var stayInDetail = DetailView.Visibility == Visibility.Visible;
         RefreshClips();
+        if (!stayInDetail)
+        {
+            return;
+        }
+
+        var again = _items.FirstOrDefault(i =>
+            string.Equals(i.Metadata.VideoPath, path, StringComparison.OrdinalIgnoreCase));
+        if (again is null)
+        {
+            ShowClipsView();
+            return;
+        }
+
+        _suppressEvents = true;
+        ClipList.SelectedItem = again;
+        DetailTitle.Text = again.DisplayName;
+        _suppressEvents = false;
     }
 
     private void OpenFolder_OnClick(object sender, RoutedEventArgs e)

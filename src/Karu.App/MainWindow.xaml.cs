@@ -124,6 +124,9 @@ public partial class MainWindow : Window
     private double _killY = 0.02;
     private double _killW = 0.27;
     private double _killH = 0.22;
+    private bool _onboardingCompleted = true;
+    private double _trimStartSeconds;
+    private double? _trimEndSeconds;
 
     public MainWindow(AppConfig config)
     {
@@ -147,7 +150,57 @@ public partial class MainWindow : Window
 
     public void SetStatus(string status) => StatusText.Text = status;
 
+    public void SetPlayerNameBanner(bool show)
+    {
+        PlayerNameBanner.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public void SetOcrHealth(string line, DateTime utc)
+    {
+        var age = DateTime.UtcNow - utc;
+        var fresh = age.TotalSeconds < 8;
+        OcrHealthDot.Fill = fresh
+            ? new SolidColorBrush(Color.FromRgb(0x3D, 0xC2, 0x72))
+            : new SolidColorBrush(Color.FromRgb(0xF0, 0xA0, 0x30));
+        var preview = string.IsNullOrWhiteSpace(line)
+            ? "(vide)"
+            : line.Replace('\n', ' ').Replace('\r', ' ').Trim();
+        if (preview.Length > 48)
+        {
+            preview = preview[..45] + "…";
+        }
+
+        OcrHealthText.Text = fresh
+            ? $"Killfeed : {preview}"
+            : $"Killfeed : dernière lecture {FormatAgeShort(age)}";
+    }
+
+    public void RunKillfeedCalibration()
+    {
+        var win = new CalibrationWindow();
+        win.ShowDialog();
+        if (!win.Confirmed)
+        {
+            return;
+        }
+
+        _killX = win.NormX;
+        _killY = win.NormY;
+        _killW = win.NormW;
+        _killH = win.NormH;
+        CalibrationInfo.Text =
+            $"Zone killfeed : {_killX:0%} , {_killY:0%} · {_killW:0%} × {_killH:0%}";
+        RaiseSettingsChanged();
+    }
+
     public void AllowClose() => _allowClose = true;
+
+    private static string FormatAgeShort(TimeSpan age)
+    {
+        if (age.TotalSeconds < 60) return $"il y a {(int)age.TotalSeconds}s";
+        if (age.TotalMinutes < 60) return $"il y a {(int)age.TotalMinutes} min";
+        return "il y a un moment";
+    }
 
     public void RefreshFolders()
     {
@@ -206,6 +259,8 @@ public partial class MainWindow : Window
         {
             MissingThumbnailsRequested?.Invoke(missingThumbs);
         }
+
+        EmptyLibraryPanel.Visibility = _items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void ApplyConfig(AppConfig config)
@@ -213,6 +268,7 @@ public partial class MainWindow : Window
         _suppressEvents = true;
         _directory = config.SaveDirectory;
         _currentFolderPath = config.SaveDirectory;
+        _onboardingCompleted = config.OnboardingCompleted;
         _killX = config.KillfeedX;
         _killY = config.KillfeedY;
         _killW = config.KillfeedW;
@@ -226,6 +282,7 @@ public partial class MainWindow : Window
         AutoQuadCheck.IsChecked = config.AutoQuad;
         AutoAceCheck.IsChecked = config.AutoAce;
         PlayerNameBox.Text = config.PlayerName;
+        SetPlayerNameBanner(config.HighlightsEnabled && string.IsNullOrWhiteSpace(config.PlayerName));
         CooldownSlider.Value = config.HighlightCooldownSeconds;
         CooldownValueText.Text = $"{config.HighlightCooldownSeconds} s";
         CalibrationInfo.Text =
@@ -436,23 +493,7 @@ public partial class MainWindow : Window
         RefreshClips();
     }
 
-    private void Calibrate_OnClick(object sender, RoutedEventArgs e)
-    {
-        var win = new CalibrationWindow();
-        win.ShowDialog();
-        if (!win.Confirmed)
-        {
-            return;
-        }
-
-        _killX = win.NormX;
-        _killY = win.NormY;
-        _killW = win.NormW;
-        _killH = win.NormH;
-        CalibrationInfo.Text =
-            $"Zone killfeed : {_killX:0%} , {_killY:0%} · {_killW:0%} × {_killH:0%}";
-        RaiseSettingsChanged();
-    }
+    private void Calibrate_OnClick(object sender, RoutedEventArgs e) => RunKillfeedCalibration();
 
     private void FilterBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -1227,6 +1268,9 @@ public partial class MainWindow : Window
                 ClipTag.Ace => 3,
                 _ => 0
             };
+            _trimStartSeconds = 0;
+            _trimEndSeconds = null;
+            UpdateTrimRangeText();
             UpdateDetailNavUi();
             _suppressEvents = false;
         }
@@ -1235,6 +1279,95 @@ public partial class MainWindow : Window
             _suppressEvents = false;
             SetStatus("Impossible de lire ce clip.");
         }
+    }
+
+    private void TrimMarkIn_OnClick(object sender, RoutedEventArgs e)
+    {
+        _trimStartSeconds = Math.Max(0, _clipPlayer.Position.TotalSeconds);
+        if (_trimEndSeconds is { } end && end <= _trimStartSeconds)
+        {
+            _trimEndSeconds = null;
+        }
+
+        UpdateTrimRangeText();
+    }
+
+    private void TrimMarkOut_OnClick(object sender, RoutedEventArgs e)
+    {
+        var pos = Math.Max(0, _clipPlayer.Position.TotalSeconds);
+        if (pos <= _trimStartSeconds)
+        {
+            SetStatus("La fin doit être après le début.");
+            return;
+        }
+
+        _trimEndSeconds = pos;
+        UpdateTrimRangeText();
+    }
+
+    private async void TrimExport_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (ClipList.SelectedItem is not ClipListItem item || !File.Exists(item.Metadata.VideoPath))
+        {
+            return;
+        }
+
+        var end = _trimEndSeconds ?? _clipPlayer.Duration.TotalSeconds;
+        if (end <= _trimStartSeconds + 0.2)
+        {
+            SetStatus("Marque début + fin (ou fin = durée totale).");
+            return;
+        }
+
+        var ffmpeg = FfmpegLocator.Find();
+        if (ffmpeg is null)
+        {
+            SetStatus("FFmpeg introuvable pour le trim.");
+            return;
+        }
+
+        SetStatus("Export trim…");
+        var start = _trimStartSeconds;
+        var path = item.Metadata.VideoPath;
+        var result = await Task.Run(() => ClipTrimService.TrimAsync(ffmpeg, path, start, end));
+        if (!result.Ok)
+        {
+            SetStatus(result.Error ?? "Trim échoué.");
+            return;
+        }
+
+        if (result.OutputPath is not null)
+        {
+            _library.Register(result.OutputPath, item.Metadata.Tag);
+        }
+
+        RefreshClips();
+        SetStatus("Trim exporté · " + Path.GetFileName(result.OutputPath));
+    }
+
+    private void UpdateTrimRangeText()
+    {
+        if (_trimEndSeconds is { } end)
+        {
+            TrimRangeText.Text = $"{FormatClock(_trimStartSeconds)} → {FormatClock(end)}";
+        }
+        else if (_trimStartSeconds > 0.05)
+        {
+            TrimRangeText.Text = $"Début {FormatClock(_trimStartSeconds)}";
+        }
+        else
+        {
+            TrimRangeText.Text = "";
+        }
+    }
+
+    private static string FormatClock(double seconds)
+    {
+        if (seconds < 0) seconds = 0;
+        var ts = TimeSpan.FromSeconds(seconds);
+        return ts.TotalHours >= 1
+            ? $"{(int)ts.TotalHours}:{ts.Minutes:00}:{ts.Seconds:00}"
+            : $"{ts.Minutes}:{ts.Seconds:00}";
     }
 
     private void OpenSelectedClip_OnClick(object sender, RoutedEventArgs e)
@@ -1584,6 +1717,7 @@ public partial class MainWindow : Window
         StartWithWindows = StartWithWindowsCheck.IsChecked == true,
         PauseBufferOnBattery = PauseOnBatteryCheck.IsChecked == true,
         CheckUpdatesOnStartup = CheckUpdatesCheck.IsChecked == true,
+        OnboardingCompleted = _onboardingCompleted,
         KillfeedX = _killX,
         KillfeedY = _killY,
         KillfeedW = _killW,

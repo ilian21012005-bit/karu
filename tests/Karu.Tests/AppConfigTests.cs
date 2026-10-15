@@ -12,6 +12,24 @@ public class AppConfigTests
         Assert.Equal(
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Karu"),
             config.SaveDirectory);
+        Assert.True(config.HighlightsEnabled);
+        Assert.True(config.AutoTriple);
+        Assert.True(config.AutoQuad);
+        Assert.True(config.AutoAce);
+        Assert.False(config.OnboardingCompleted);
+    }
+
+    [Fact]
+    public void Load_existing_config_without_onboarding_key_skips_wizard()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "clipbuffer-tests", Guid.NewGuid().ToString("N"), "config.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"bufferSeconds":120,"hotkey":"F9","highlightsEnabled":false}""");
+
+        var loaded = ConfigStore.Load(path);
+
+        Assert.True(loaded.OnboardingCompleted);
+        Assert.False(loaded.HighlightsEnabled);
     }
 
     [Theory]

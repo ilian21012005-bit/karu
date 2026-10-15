@@ -25,11 +25,19 @@ Désinstallation : Paramètres Windows → Applications → Karu, ou le raccourc
 
 ## Utilisation rapide
 
-1. Démarre **Karu** **avant** la partie (statut **Buffer actif**)
-2. **F9** (modifiable) pour sauver le buffer
-3. Onglet **Clips** : dossiers, lecture, tags, favoris
-4. **Highlights auto** : active le killfeed, entre ton pseudo exact, coche Ace / Triple / Quad
-5. Fermer la fenêtre = reste en barre d’état ; **Quitter** depuis l’icône tray = arrêt réel
+1. Au premier lancement : onboarding (pseudo, F9, clips auto)
+2. Démarre **Karu** **avant** la partie → statut **Buffer actif** quand Valorant tourne
+3. **F9** (modifiable) pour sauver le buffer (même en alt-tab)
+4. Library : dossiers, lecture LibVLC (audio jeu + Discord), tags, trim début/fin, favoris
+5. **Highlights auto** (ON par défaut) : pseudo exact + focus Valo pour la détection OCR
+6. Fermer la fenêtre = tray ; **Quitter** depuis l’icône = arrêt réel
+
+### Checklist amie (si « ça marche pas »)
+
+1. Pseudo Valorant **exact** dans Réglages  
+2. Valorant lancé → statut **Buffer actif** (pas « En attente de Valorant »)  
+3. Détection killfeed cochée (+ 3K / 4K / Ace)  
+4. Pour les auto-clips : Valo **au premier plan** (OCR seulement là — perf)
 
 Réglages : `%AppData%\Karu\config.json`  
 Clips : `Vidéos\Karu` (métadonnées dans un dossier `.karu`)  

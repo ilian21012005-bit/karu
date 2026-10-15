@@ -57,10 +57,11 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <DockPanel Grid.Row="0" Margin="0,0,0,14">
+                <DockPanel Grid.Row="0" Margin="0,0,0,10">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBlock Text="Library"
                                    FontSize="22"
@@ -70,12 +71,27 @@
                         <Border Background="{DynamicResource PanelBrush}"
                                 CornerRadius="10"
                                 Padding="12,6"
-                                VerticalAlignment="Center">
+                                VerticalAlignment="Center"
+                                Margin="0,0,10,0">
                             <TextBlock x:Name="StatusText"
                                        Text="D&#233;marrage&#8230;"
                                        Foreground="{DynamicResource MutedBrush}"
                                        FontSize="12"/>
                         </Border>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse x:Name="OcrHealthDot"
+                                     Width="8" Height="8"
+                                     Fill="#F0A030"
+                                     Margin="0,0,6,0"
+                                     VerticalAlignment="Center"/>
+                            <TextBlock x:Name="OcrHealthText"
+                                       Text="Killfeed : en attente"
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="11"
+                                       VerticalAlignment="Center"
+                                       MaxWidth="280"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
                     </StackPanel>
                     <ComboBox x:Name="FilterBox"
                               DockPanel.Dock="Right"
@@ -93,7 +109,19 @@
                     </ComboBox>
                 </DockPanel>
 
-                <DockPanel Grid.Row="1" Margin="0,0,0,12">
+                <Border x:Name="PlayerNameBanner"
+                        Grid.Row="1"
+                        Visibility="Collapsed"
+                        Background="{DynamicResource BadgeBrush}"
+                        CornerRadius="8"
+                        Padding="12,8"
+                        Margin="0,0,0,10">
+                    <TextBlock Text="Entre ton pseudo pour les clips auto (R&#233;glages &#8594; Highlights)."
+                               FontSize="12"
+                               TextWrapping="Wrap"/>
+                </Border>
+
+                <DockPanel Grid.Row="2" Margin="0,0,0,12">
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                         <Button Content="+ Dossier"
                                 Style="{StaticResource IconButton}"
@@ -171,14 +199,14 @@
                 </DockPanel>
 
                 <TextBlock x:Name="FolderHintText"
-                           Grid.Row="1"
+                           Grid.Row="2"
                            VerticalAlignment="Bottom"
                            Margin="0,44,0,0"
                            Visibility="Collapsed"/>
 
-                <!-- Grille de cartes -->
+                <!-- Grille de cartes + empty state -->
+                <Grid Grid.Row="3">
                 <ListBox x:Name="ClipList"
-                         Grid.Row="2"
                          Background="Transparent"
                          BorderThickness="0"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -314,6 +342,35 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+
+                <Border x:Name="EmptyLibraryPanel"
+                        Visibility="Collapsed"
+                        Background="{DynamicResource PanelBrush}"
+                        CornerRadius="12"
+                        Padding="36,28"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        MaxWidth="420">
+                    <StackPanel>
+                        <TextBlock Text="Aucun clip pour l&#8217;instant"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,14"/>
+                        <TextBlock Text="1. Entre ton pseudo Valorant (R&#233;glages)"
+                                   FontSize="13"
+                                   Margin="0,0,0,8"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="2. Lance Valorant &#8594; statut &#171; Buffer actif &#187;"
+                                   FontSize="13"
+                                   Margin="0,0,0,8"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="3. F9 pour un clip manuel, ou joue pour un Ace / 3K / 4K auto"
+                                   FontSize="13"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource MutedBrush}"/>
+                    </StackPanel>
+                </Border>
+                </Grid>
             </Grid>
 
             <!-- DETAIL CLIP -->
@@ -457,6 +514,27 @@
                                         Margin="0,0,6,0"
                                         ToolTip="Avancer 5 secondes"/>
                                 <Button Style="{StaticResource IconButton}"
+                                        Content="D&#233;but"
+                                        Click="TrimMarkIn_OnClick"
+                                        Margin="0,0,6,0"
+                                        ToolTip="Marquer le d&#233;but du trim"/>
+                                <Button Style="{StaticResource IconButton}"
+                                        Content="Fin"
+                                        Click="TrimMarkOut_OnClick"
+                                        Margin="0,0,6,0"
+                                        ToolTip="Marquer la fin du trim"/>
+                                <Button Style="{StaticResource IconButton}"
+                                        Content="Exporter trim"
+                                        Click="TrimExport_OnClick"
+                                        Margin="0,0,6,0"
+                                        ToolTip="R&#233;-exporter le segment (ffmpeg, hors jeu)"/>
+                                <TextBlock x:Name="TrimRangeText"
+                                           Text=""
+                                           Foreground="{DynamicResource MutedBrush}"
+                                           FontSize="11"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,10,0"/>
+                                <Button Style="{StaticResource IconButton}"
                                         Content="Dossier"
                                         Click="RevealClip_OnClick"
                                         Margin="0,0,6,0"
@@ -519,6 +597,28 @@
                           VerticalScrollBarVisibility="Auto"
                           Margin="20,16,20,16">
                 <StackPanel MaxWidth="560" HorizontalAlignment="Left">
+                    <Border Background="{DynamicResource BadgeBrush}"
+                            CornerRadius="12"
+                            Padding="18"
+                            Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="Checklist amie"
+                                       FontWeight="SemiBold"
+                                       FontSize="14"
+                                       Margin="0,0,0,8"/>
+                            <TextBlock Text="1. Pseudo Valorant exact renseign&#233;"
+                                       FontSize="12" Margin="0,0,0,4"/>
+                            <TextBlock Text="2. Valorant lanc&#233; &#8594; statut &#171; Buffer actif &#187;"
+                                       FontSize="12" Margin="0,0,0,4"/>
+                            <TextBlock Text="3. D&#233;tection killfeed coch&#233;e (+ 3K / 4K / Ace)"
+                                       FontSize="12" Margin="0,0,0,4"/>
+                            <TextBlock Text="Perf : buffer NVENC seulement ; OCR uniquement avec Valo au premier plan."
+                                       FontSize="11"
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
                     <Border Background="{DynamicResource PanelBrush}"
                             CornerRadius="12"
                             Padding="22"

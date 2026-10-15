@@ -14,12 +14,19 @@ public sealed class AppConfig
     public string Hotkey { get; set; } = DefaultHotkey;
     public string SaveDirectory { get; set; } = DefaultSaveDirectory();
 
-    public bool AutoTriple { get; set; }
-    public bool AutoQuad { get; set; }
-    public bool AutoAce { get; set; }
+    public bool AutoTriple { get; set; } = true;
+    public bool AutoQuad { get; set; } = true;
+    public bool AutoAce { get; set; } = true;
     public int HighlightCooldownSeconds { get; set; } = 15;
     public string PlayerName { get; set; } = "";
-    public bool HighlightsEnabled { get; set; }
+    public bool HighlightsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Défaut true pour ne pas réafficher l’onboarding aux configs existantes
+    /// (JSON sans clé → false à la désérialisation, corrigé dans ConfigStore.Load).
+    /// CreateDefault() force false pour un vrai first-run.
+    /// </summary>
+    public bool OnboardingCompleted { get; set; } = true;
 
     /// <summary>"carbon" (défaut) ou "aventurine".</summary>
     public string Theme { get; set; } = "carbon";
@@ -42,7 +49,14 @@ public sealed class AppConfig
     public static string DefaultSaveDirectory() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "Karu");
 
-    public static AppConfig CreateDefault() => new();
+    public static AppConfig CreateDefault() => new()
+    {
+        OnboardingCompleted = false,
+        HighlightsEnabled = true,
+        AutoTriple = true,
+        AutoQuad = true,
+        AutoAce = true
+    };
 
     public void Clamp()
     {
@@ -167,7 +181,14 @@ public static class ConfigStore
         }
 
         var json = File.ReadAllText(path);
+        var hadOnboardingKey = json.Contains("onboardingCompleted", StringComparison.OrdinalIgnoreCase);
         var loaded = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? AppConfig.CreateDefault();
+        // Anciennes configs sans la clé : ne pas forcer l’onboarding.
+        if (!hadOnboardingKey)
+        {
+            loaded.OnboardingCompleted = true;
+        }
+
         loaded.Clamp();
         return loaded;
     }

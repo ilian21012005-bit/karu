@@ -18,6 +18,7 @@ public sealed class KillfeedMonitor : IDisposable
     private AppConfig _config = AppConfig.CreateDefault();
     private bool _disposed;
     private string _lastOcr = "";
+    private DateTime _lastOcrUtc = DateTime.MinValue;
 
     public KillfeedMonitor()
     {
@@ -26,6 +27,18 @@ public sealed class KillfeedMonitor : IDisposable
 
     public event Action<HighlightClipRequest>? HighlightTriggered;
     public event Action<string>? StatusChanged;
+    /// <summary>Ligne OCR utile (changement). 0 coût hors boucle OCR existante.</summary>
+    public event Action<string, DateTime>? OcrLineObserved;
+
+    public string LastOcrLine
+    {
+        get { lock (_gate) return _lastOcr; }
+    }
+
+    public DateTime LastOcrUtc
+    {
+        get { lock (_gate) return _lastOcrUtc; }
+    }
 
     public void ApplyConfig(AppConfig config)
     {
@@ -80,7 +93,11 @@ public sealed class KillfeedMonitor : IDisposable
         cts?.Dispose();
         _tracker.Reset();
         _scheduler.Reset();
-        _lastOcr = "";
+        lock (_gate)
+        {
+            _lastOcr = "";
+            _lastOcrUtc = DateTime.MinValue;
+        }
     }
 
     public void Dispose()
@@ -259,8 +276,23 @@ public sealed class KillfeedMonitor : IDisposable
             return;
         }
 
-        _lastOcr = text;
-        _tracker.ObserveOcrText(text, config.PlayerName, DateTime.UtcNow);
+        var now = DateTime.UtcNow;
+        lock (_gate)
+        {
+            _lastOcr = text;
+            _lastOcrUtc = now;
+        }
+
+        try
+        {
+            OcrLineObserved?.Invoke(text, now);
+        }
+        catch
+        {
+            // ignore UI subscribers
+        }
+
+        _tracker.ObserveOcrText(text, config.PlayerName, now);
     }
 
     private static Bitmap CaptureRegion(ScreenRect rect)

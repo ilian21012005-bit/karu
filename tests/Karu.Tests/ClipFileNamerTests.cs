@@ -17,6 +17,23 @@ public class ClipFileNamerTests
     }
 
     [Fact]
+    public void MakeHint_uses_tag_and_player()
+    {
+        Assert.Equal("Ace_iblame", ClipFileNamer.MakeHint(ClipTag.Ace, "iblame"));
+        Assert.Equal("Triple_player_one", ClipFileNamer.MakeHint(ClipTag.Triple, "player one"));
+        Assert.Equal("Valorant", ClipFileNamer.MakeHint(ClipTag.Manual, null));
+    }
+
+    [Fact]
+    public void MakeFileName_with_tag_prefix()
+    {
+        var when = new DateTime(2026, 9, 20, 16, 22, 5);
+        Assert.Equal(
+            "Ace_iblame_2026-09-20_16-22-05.mp4",
+            ClipFileNamer.MakeFileName(when, ClipTag.Ace, "iblame"));
+    }
+
+    [Fact]
     public void MakeFullPath_avoids_existing_file_names()
     {
         var dir = Path.Combine(Path.GetTempPath(), "karu-namer-" + Guid.NewGuid().ToString("N"));

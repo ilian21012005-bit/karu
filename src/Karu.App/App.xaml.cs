@@ -106,17 +106,18 @@ public partial class App : System.Windows.Application
         _tray.ShowSettingsRequested += ShowSettings;
         _tray.ExitRequested += ExitApp;
 
+        _window.Show();
+        RunOnboardingIfNeeded();
+
         var ffmpeg = FfmpegLocator.Find();
         AppLog.Write("ffmpeg=" + (ffmpeg ?? "(null)"));
         if (ffmpeg is null)
         {
             _window.SetStatus("FFmpeg introuvable. Place ffmpeg.exe dans tools/ffmpeg.");
-            _window.Show();
             return;
         }
 
         _window.SetStatus("Détection NVENC…");
-        _window.Show();
 
         _ = Task.Run(() =>
         {
@@ -160,7 +161,7 @@ public partial class App : System.Windows.Application
 
             _buffer = new ReplayBufferService(ffmpeg, segmentDir);
             _buffer.SetBufferSeconds(_config.BufferSeconds);
-            _buffer.StatusChanged += () => Dispatcher.BeginInvoke(() => _window?.SetStatus(_buffer!.Status));
+            _buffer.StatusChanged += () => Dispatcher.BeginInvoke(OnBufferStatusChanged);
             _buffer.ClipSaved += (path, tag) => Dispatcher.BeginInvoke(() => OnClipSaved(path, tag));
             _buffer.SaveFailed += message => Dispatcher.BeginInvoke(() =>
             {
@@ -171,7 +172,9 @@ public partial class App : System.Windows.Application
             _killfeed = new KillfeedMonitor();
             _killfeed.ApplyConfig(_config);
             _killfeed.HighlightTriggered += request => _ = SaveHighlightAsync(request);
-            // OCR + buffer démarrent seulement quand Valorant est au premier plan
+            _killfeed.OcrLineObserved += (line, utc) =>
+                Dispatcher.BeginInvoke(() => _window?.SetOcrHealth(line, utc));
+            // Buffer = process Valo ; OCR = focus Valo (perf)
 
             _power = new PowerMonitorService();
             _power.PowerSourceChanged += _ =>
@@ -255,7 +258,7 @@ public partial class App : System.Windows.Application
                     }
 
                     _killfeed?.Stop();
-                    Dispatcher.BeginInvoke(() => _window?.SetStatus(_buffer.Status));
+                    Dispatcher.BeginInvoke(PushUnifiedStatus);
                     return;
                 }
 
@@ -267,7 +270,7 @@ public partial class App : System.Windows.Application
                         _buffer.Stop();
                     }
 
-                    Dispatcher.BeginInvoke(() => _window?.SetStatus("En attente de Valorant"));
+                    Dispatcher.BeginInvoke(PushUnifiedStatus);
                     return;
                 }
 
@@ -285,14 +288,13 @@ public partial class App : System.Windows.Application
                     if (gameFocused)
                     {
                         _killfeed?.Start();
-                        Dispatcher.BeginInvoke(() => _window?.SetStatus("Buffer actif"));
                     }
                     else
                     {
                         _killfeed?.Stop();
-                        Dispatcher.BeginInvoke(() =>
-                            _window?.SetStatus("Buffer actif · focus Valo pour la détection"));
                     }
+
+                    Dispatcher.BeginInvoke(PushUnifiedStatus);
                 }
                 catch (Exception ex)
                 {
@@ -310,6 +312,87 @@ public partial class App : System.Windows.Application
                 }
             }
         });
+    }
+
+    private void PushUnifiedStatus()
+    {
+        var pauseBattery = _config.PauseBufferOnBattery && (_power?.IsOnBattery ?? false);
+        var gameFocused = _gameFocus?.IsGameFocused ?? false;
+        var gameRunning = GameProcessNames.IsValorantRunning();
+        var text = CaptureStatusText.Build(
+            pauseBattery,
+            gameRunning,
+            gameFocused,
+            _config.HighlightsEnabled,
+            !string.IsNullOrWhiteSpace(_config.PlayerName));
+        _window?.SetStatus(text);
+        _window?.SetPlayerNameBanner(
+            _config.HighlightsEnabled && string.IsNullOrWhiteSpace(_config.PlayerName));
+    }
+
+    private void OnBufferStatusChanged()
+    {
+        var s = _buffer?.Status ?? "";
+        if (s.Contains("Sauvegarde", StringComparison.OrdinalIgnoreCase) ||
+            s.StartsWith("Erreur", StringComparison.OrdinalIgnoreCase) ||
+            s.StartsWith("Capture", StringComparison.OrdinalIgnoreCase) ||
+            s.Contains("Pas encore", StringComparison.OrdinalIgnoreCase) ||
+            s.Contains("Dossier", StringComparison.OrdinalIgnoreCase))
+        {
+            _window?.SetStatus(s);
+            return;
+        }
+
+        PushUnifiedStatus();
+    }
+
+    private void RunOnboardingIfNeeded()
+    {
+        if (_config.OnboardingCompleted || _window is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var onboard = new OnboardingWindow(_config) { Owner = _window };
+            var ok = onboard.ShowDialog() == true && onboard.Completed;
+            if (ok)
+            {
+                _config.PlayerName = onboard.PlayerName;
+                _config.Hotkey = onboard.Hotkey;
+                _config.HighlightsEnabled = onboard.AutoClipsEnabled;
+                if (onboard.AutoClipsEnabled)
+                {
+                    _config.AutoTriple = true;
+                    _config.AutoQuad = true;
+                    _config.AutoAce = true;
+                }
+
+                if (onboard.CalibrateRequested)
+                {
+                    _window.RunKillfeedCalibration();
+                }
+            }
+
+            _config.OnboardingCompleted = true;
+            ConfigStore.Save(ConfigStore.DefaultPath, _config);
+            _window.ApplyConfig(_config);
+            PushUnifiedStatus();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("onboarding: " + ex.Message);
+            _config.OnboardingCompleted = true;
+            try
+            {
+                ConfigStore.Save(ConfigStore.DefaultPath, _config);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
     }
 
     private async Task CheckUpdatesInBackgroundAsync()
@@ -346,9 +429,16 @@ public partial class App : System.Windows.Application
             AppLog.Write("metadata: " + ex.Message);
         }
 
-        _window?.SetStatus("Buffer actif");
+        PushUnifiedStatus();
         _window?.RefreshClips();
-        _tray?.ShowBalloon("Karu", Path.GetFileName(path));
+        var title = tag switch
+        {
+            ClipTag.Triple => "Triple sauvé",
+            ClipTag.Quad => "Quad sauvé",
+            ClipTag.Ace => "Ace sauvé",
+            _ => "Clip sauvé"
+        };
+        _tray?.ShowBalloon(title, Path.GetFileName(path) + " — ouvre Karu pour revoir");
     }
 
     private void OnMissingThumbnails(IReadOnlyList<string> paths)
@@ -460,7 +550,8 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        await _buffer.SaveClipAsync(_config.SaveDirectory, tag);
+        var hint = ClipFileNamer.MakeHint(tag, _config.PlayerName);
+        await _buffer.SaveClipAsync(_config.SaveDirectory, tag, hint);
     }
 
     private async Task SaveHighlightAsync(HighlightClipRequest request)
@@ -472,7 +563,8 @@ public partial class App : System.Windows.Application
 
         AppLog.Write(
             $"highlight {request.Tag} window={request.WindowStartUtc:HH:mm:ss}..{request.WindowEndUtc:HH:mm:ss}Z");
-        await _buffer.SaveClipAsync(_config.SaveDirectory, request);
+        var hint = ClipFileNamer.MakeHint(request.Tag, _config.PlayerName);
+        await _buffer.SaveClipAsync(_config.SaveDirectory, request, hint);
     }
 
     private void ShowSettings()

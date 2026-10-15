@@ -37,6 +37,47 @@ public static class FfmpegArgumentBuilder
             "-movflags +faststart",
             $"\"{outputPath}\"");
 
+    /// <summary>Trim léger (stream copy). Uniquement à l’export, pas en jeu.</summary>
+    public static string BuildTrimCopyArgs(string inputPath, string outputPath, double startSeconds, double endSeconds)
+    {
+        var duration = Math.Max(0.05, endSeconds - startSeconds);
+        return string.Join(' ',
+            "-hide_banner",
+            "-loglevel warning",
+            "-y",
+            "-ss",
+            startSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+            "-i",
+            $"\"{inputPath}\"",
+            "-t",
+            duration.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+            "-map 0:v:0 -map 0:a:0?",
+            "-c copy",
+            "-movflags +faststart",
+            $"\"{outputPath}\"");
+    }
+
+    /// <summary>Filet si le copy échoue (keyframes).</summary>
+    public static string BuildTrimReencodeArgs(string inputPath, string outputPath, double startSeconds, double endSeconds)
+    {
+        var duration = Math.Max(0.05, endSeconds - startSeconds);
+        return string.Join(' ',
+            "-hide_banner",
+            "-loglevel warning",
+            "-y",
+            "-ss",
+            startSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+            "-i",
+            $"\"{inputPath}\"",
+            "-t",
+            duration.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+            "-map 0:v:0 -map 0:a:0?",
+            "-c:v h264_nvenc -preset p4 -rc constqp -qp 28",
+            "-c:a aac -b:a 160k",
+            "-movflags +faststart",
+            $"\"{outputPath}\"");
+    }
+
     public static string BuildNvencProbeArgs() => "-hide_banner -encoders";
 
     public static string BuildConcatList(IEnumerable<string> segmentPaths) =>

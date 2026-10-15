@@ -89,8 +89,23 @@ public sealed class KillfeedMonitor : IDisposable
         }
 
         try { cts?.Cancel(); } catch { /* ignore */ }
-        try { loop?.Wait(2500); } catch { /* ignore */ }
-        cts?.Dispose();
+        // Quitter l'app passe par Dispose : la boucle est coopérative (Delay / OCR
+        // annulables). Attendre 2,5 s bloque le thread UI pour un tick déjà annulé.
+        var waitMs = _disposed ? 200 : 2500;
+        var finished = true;
+        try
+        {
+            finished = loop is null || loop.Wait(waitMs);
+        }
+        catch
+        {
+            finished = loop?.IsCompleted != false;
+        }
+
+        if (finished)
+        {
+            cts?.Dispose();
+        }
         _tracker.Reset();
         _scheduler.Reset();
         lock (_gate)

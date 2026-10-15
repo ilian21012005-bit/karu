@@ -48,13 +48,16 @@ public static class NvencProbe
             return new NvencProbeResult(false, "Impossible de lancer FFmpeg.");
         }
 
-        var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        ChildProcessJob.Assign(process);
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(10_000))
         {
             try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
             return new NvencProbeResult(false, "FFmpeg ne répond plus pendant la détection NVENC.");
         }
 
+        var output = stdoutTask.GetAwaiter().GetResult() + stderrTask.GetAwaiter().GetResult();
         var ok = output.Contains("h264_nvenc", StringComparison.OrdinalIgnoreCase);
         return ok
             ? new NvencProbeResult(true, "NVENC prêt")

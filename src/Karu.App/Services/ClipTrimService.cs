@@ -81,6 +81,22 @@ public static class ClipTrimService
                 return false;
             }
 
+            ChildProcessJob.Assign(process);
+            using var killOnCancel = token.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+            });
+
             var errTask = process.StandardError.ReadToEndAsync(token);
             var outTask = process.StandardOutput.ReadToEndAsync(token);
             await process.WaitForExitAsync(token).ConfigureAwait(false);

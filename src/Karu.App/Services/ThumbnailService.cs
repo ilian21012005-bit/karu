@@ -21,6 +21,7 @@ public sealed class ThumbnailService : IDisposable
     private readonly SemaphoreSlim _signal = new(0);
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _worker;
+    private readonly List<Process> _children = new();
     private bool _disposed;
 
     public ThumbnailService(string ffmpegPath)
@@ -89,8 +90,7 @@ public sealed class ThumbnailService : IDisposable
                             $"-i \"{videoPath}\" -an -frames:v 1 -vf \"scale=960:-2\" -q:v 3 \"{temporaryThumbnail}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                RedirectStandardError = true,
-                RedirectStandardOutput = true
+                RedirectStandardError = true
             };
 
             using var process = Process.Start(start);
@@ -99,11 +99,19 @@ public sealed class ThumbnailService : IDisposable
                 return null;
             }
 
-            _ = process.StandardError.ReadToEnd();
-            if (!process.WaitForExit(30_000))
+            Attach(process);
+            try
             {
-                try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
-                return null;
+                _ = process.StandardError.ReadToEnd();
+                if (!process.WaitForExit(30_000))
+                {
+                    try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                    return null;
+                }
+            }
+            finally
+            {
+                Detach(process);
             }
 
             if (process.ExitCode != 0 || !File.Exists(temporaryThumbnail) || new FileInfo(temporaryThumbnail).Length == 0)
@@ -145,16 +153,65 @@ public sealed class ThumbnailService : IDisposable
 
         _disposed = true;
         _cts.Cancel();
-        _signal.Release();
-        try { _worker.Wait(2000); } catch { /* ignore */ }
+        Process[] children;
+        lock (_gate)
+        {
+            children = _children.ToArray();
+        }
+
+        foreach (var process in children)
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        try { _signal.Release(); } catch { /* ignore */ }
+        var finished = false;
+        try { finished = _worker.Wait(200); } catch { finished = _worker.IsCompleted; }
         foreach (var waiter in _waiters.Values)
         {
             waiter.TrySetCanceled();
         }
 
         _waiters.Clear();
-        _cts.Dispose();
-        _signal.Dispose();
+        if (finished)
+        {
+            _cts.Dispose();
+            _signal.Dispose();
+        }
+    }
+
+    private void Attach(Process process)
+    {
+        ChildProcessJob.Assign(process);
+        var killNow = false;
+        lock (_gate)
+        {
+            _children.Add(process);
+            killNow = _disposed;
+        }
+
+        if (killNow)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+        }
+    }
+
+    private void Detach(Process process)
+    {
+        lock (_gate)
+        {
+            _children.Remove(process);
+        }
     }
 
     private void Enqueue(string videoPath)
@@ -260,8 +317,7 @@ public sealed class ThumbnailService : IDisposable
                     Arguments = args,
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                    RedirectStandardError = true,
-                    RedirectStandardOutput = true
+                    RedirectStandardError = true
                 };
 
                 using var process = Process.Start(start);
@@ -272,14 +328,23 @@ public sealed class ThumbnailService : IDisposable
                     return;
                 }
 
-                var stderr = process.StandardError.ReadToEnd();
-                if (!process.WaitForExit(30_000))
+                Attach(process);
+                string stderr;
+                try
                 {
-                    try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
-                    MarkFailed(videoPath);
-                    CompleteWaiter(videoPath, false);
-                    AppLog.Write("thumb timeout: " + videoPath);
-                    return;
+                    stderr = process.StandardError.ReadToEnd();
+                    if (!process.WaitForExit(30_000))
+                    {
+                        try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                        MarkFailed(videoPath);
+                        CompleteWaiter(videoPath, false);
+                        AppLog.Write("thumb timeout: " + videoPath);
+                        return;
+                    }
+                }
+                finally
+                {
+                    Detach(process);
                 }
 
                 if (process.ExitCode == 0 && File.Exists(thumb) && new FileInfo(thumb).Length > 0)

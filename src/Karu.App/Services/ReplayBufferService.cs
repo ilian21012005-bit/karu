@@ -149,6 +149,20 @@ public sealed class ReplayBufferService : IDisposable
             _pruneTimer?.Dispose();
             _pruneTimer = null;
             _audioCts?.Cancel();
+            // Débloque stdin.Write avant d'attendre : Cancel seul laisse la pompe coincée
+            // jusqu'au timeout de 1 s.
+            try
+            {
+                if (_ffmpeg is { HasExited: false })
+                {
+                    _ffmpeg.StandardInput.Close();
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
             try { _audioPump?.Wait(1000); } catch { /* ignore */ }
             _audioPump = null;
             _audioCts?.Dispose();
@@ -163,12 +177,10 @@ public sealed class ReplayBufferService : IDisposable
                     _ffmpeg.Exited -= OnFfmpegExited;
                     if (!_ffmpeg.HasExited)
                     {
-                        try { _ffmpeg.StandardInput.Close(); } catch { /* ignore */ }
-                        if (!_ffmpeg.WaitForExit(1500))
-                        {
-                            _ffmpeg.Kill(entireProcessTree: true);
-                            _ffmpeg.WaitForExit(2000);
-                        }
+                        // ddagrab n'a pas de fin de flux : fermer le pipe audio ne fait pas
+                        // sortir ffmpeg, donc l'attente de 1,5 s partait toujours en timeout.
+                        try { _ffmpeg.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                        _ffmpeg.WaitForExit(2000);
                     }
                 }
             }
@@ -299,8 +311,12 @@ public sealed class ReplayBufferService : IDisposable
 
                 using var process = Process.Start(concat)
                                     ?? throw new InvalidOperationException("FFmpeg concat n'a pas démarré.");
-                var stderr = await process.StandardError.ReadToEndAsync();
+                ChildProcessJob.Assign(process);
+                var stderrTask = process.StandardError.ReadToEndAsync();
+                var stdoutTask = process.StandardOutput.ReadToEndAsync();
                 await process.WaitForExitAsync();
+                var stderr = await stderrTask;
+                _ = await stdoutTask;
                 if (process.ExitCode != 0 || !File.Exists(output))
                 {
                     SaveFailed?.Invoke(string.IsNullOrWhiteSpace(stderr)

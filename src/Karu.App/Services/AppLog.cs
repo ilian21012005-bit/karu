@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO;
 
 namespace Karu.App.Services;
@@ -10,7 +9,7 @@ internal static class AppLog
         "Karu",
         "log.txt");
 
-    [Conditional("DEBUG")]
+    /// <summary>Toujours écrit (Release inclus) — utile pour diagnostiquer les crashs de lancement.</summary>
     public static void Write(string message) => WriteAlways(message);
 
     public static void WriteAlways(string message)

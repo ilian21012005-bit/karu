@@ -15,7 +15,27 @@ public sealed class ClipPlaybackController : IDisposable
 
     public ClipPlaybackController()
     {
-        LibVLCSharp.Shared.Core.Initialize();
+        // Important : Antigravity / dotnet run depuis un mauvais cwd cassait le load natif.
+        var baseDir = AppContext.BaseDirectory;
+        try
+        {
+            Directory.SetCurrentDirectory(baseDir);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        var libDir = System.IO.Path.Combine(baseDir, "libvlc", "win-x64");
+        if (System.IO.Directory.Exists(libDir))
+        {
+            LibVLCSharp.Shared.Core.Initialize(libDir);
+        }
+        else
+        {
+            LibVLCSharp.Shared.Core.Initialize();
+        }
+
         _libVlc = new LibVLC(
             "--no-video-title-show",
             "--avcodec-hw=d3d11va",

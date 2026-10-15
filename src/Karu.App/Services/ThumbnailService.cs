@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using Karu.Core;
 
 namespace Karu.App.Services;
@@ -13,6 +15,8 @@ public sealed class ThumbnailService : IDisposable
     private readonly HashSet<string> _failed = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentQueue<string> _queue = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _waiters =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, Task<string?>> _heroJobs =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _signal = new(0);
     private readonly CancellationTokenSource _cts = new();
@@ -50,6 +54,75 @@ public sealed class ThumbnailService : IDisposable
         }
 
         return tcs.Task;
+    }
+
+    public Task<string?> GenerateHeroAsync(string videoPath)
+    {
+        if (_disposed || string.IsNullOrWhiteSpace(videoPath) || !File.Exists(videoPath) || !File.Exists(_ffmpegPath))
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        return _heroJobs.GetOrAdd(videoPath, path => Task.Run(() => GenerateHero(path)));
+    }
+
+    private string? GenerateHero(string videoPath)
+    {
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(videoPath))));
+        var cacheDirectory = Path.Combine(Path.GetTempPath(), "Karu", "HeroThumbnails");
+        var cachedThumbnail = Path.Combine(cacheDirectory, key + ".jpg");
+        var temporaryThumbnail = Path.Combine(cacheDirectory, key + ".tmp.jpg");
+
+        try
+        {
+            if (File.Exists(cachedThumbnail))
+            {
+                return cachedThumbnail;
+            }
+
+            Directory.CreateDirectory(cacheDirectory);
+            Thread.CurrentThread.Priority = ThreadPriority.Lowest;
+            var start = new ProcessStartInfo
+            {
+                FileName = _ffmpegPath,
+                Arguments = "-hide_banner -loglevel error -y " +
+                            $"-i \"{videoPath}\" -an -frames:v 1 -vf \"scale=960:-2\" -q:v 3 \"{temporaryThumbnail}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true
+            };
+
+            using var process = Process.Start(start);
+            if (process is null)
+            {
+                return null;
+            }
+
+            _ = process.StandardError.ReadToEnd();
+            if (!process.WaitForExit(30_000))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                return null;
+            }
+
+            if (process.ExitCode != 0 || !File.Exists(temporaryThumbnail) || new FileInfo(temporaryThumbnail).Length == 0)
+            {
+                return null;
+            }
+
+            File.Move(temporaryThumbnail, cachedThumbnail, overwrite: true);
+            return cachedThumbnail;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write("hero thumb: " + ex.Message);
+            return null;
+        }
+        finally
+        {
+            try { if (File.Exists(temporaryThumbnail)) File.Delete(temporaryThumbnail); } catch { /* ignore */ }
+        }
     }
 
     public Task GenerateMissingAsync(IEnumerable<string> videoPaths, CancellationToken cancellationToken = default)

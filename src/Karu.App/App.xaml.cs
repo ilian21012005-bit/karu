@@ -28,7 +28,7 @@ public partial class App : System.Windows.Application
         base.OnStartup(e);
         DispatcherUnhandledException += (_, args) =>
         {
-            AppLog.Write("Dispatcher: " + args.Exception);
+            AppLog.WriteAlways("Dispatcher: " + args.Exception);
             args.Handled = true;
         };
 
@@ -38,8 +38,12 @@ public partial class App : System.Windows.Application
         }
         catch (Exception ex)
         {
-            AppLog.Write("Startup fatal: " + ex);
-            MessageBox.Show(ex.Message, "Karu", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppLog.WriteAlways("Startup fatal: " + ex);
+            MessageBox.Show(
+                ex.ToString(),
+                "Karu — erreur de démarrage",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
             Shutdown();
         }
     }
@@ -101,6 +105,7 @@ public partial class App : System.Windows.Application
         _window = new MainWindow(_config);
         _window.SettingsChanged += OnSettingsChanged;
         _window.MissingThumbnailsRequested += OnMissingThumbnails;
+        _window.HeroThumbnailRequested += OnHeroThumbnailRequested;
 
         _tray = new TrayService();
         _tray.ShowSettingsRequested += ShowSettings;
@@ -460,6 +465,24 @@ public partial class App : System.Windows.Application
             await Task.Delay(400);
             Interlocked.Exchange(ref _thumbRefreshQueued, 0);
             _ = Dispatcher.BeginInvoke(() => _window?.RefreshClips());
+        });
+    }
+
+    private void OnHeroThumbnailRequested(string videoPath)
+    {
+        if (_thumbnails is null)
+        {
+            return;
+        }
+
+        var thumbnails = _thumbnails;
+        _ = Task.Run(async () =>
+        {
+            var path = await thumbnails.GenerateHeroAsync(videoPath).ConfigureAwait(false);
+            if (path is not null)
+            {
+                await Dispatcher.InvokeAsync(() => _window?.SetHeroThumbnail(videoPath, path));
+            }
         });
     }
 

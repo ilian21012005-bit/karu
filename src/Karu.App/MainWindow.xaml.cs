@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Karu.App.Services;
@@ -18,7 +19,13 @@ public sealed class ClipListItem : INotifyPropertyChanged
     private BitmapImage? _thumbnailImage;
 
     public required ClipMetadata Metadata { get; init; }
-    public string DisplayName => Metadata.DisplayName;
+    public string DisplayName => $"{Metadata.Tag switch
+    {
+        ClipTag.Triple => "Triplé",
+        ClipTag.Quad => "Quadruplé",
+        ClipTag.Ace => "Ace",
+        _ => "Clip manuel"
+    }} · {Metadata.CreatedAt:HH:mm:ss}";
     public string TagBadge => TagToLabel(Metadata.Tag);
     public string Subtitle => Metadata.CreatedAt.ToString("dd MMM · HH:mm");
     public string AgeLabel => FormatAge(Metadata.CreatedAt);
@@ -33,9 +40,13 @@ public sealed class ClipListItem : INotifyPropertyChanged
 
     public Brush TagBadgeForeground => Metadata.Tag switch
     {
-        ClipTag.Ace => (Brush)Application.Current.Resources["StarBrush"],
-        ClipTag.Triple or ClipTag.Quad => (Brush)Application.Current.Resources["AccentBrush"],
+        ClipTag.Ace => (Brush)Application.Current.Resources["AccentBrush"],
         _ => (Brush)Application.Current.Resources["MutedBrush"]
+    };
+
+    public Brush TagBadgeBackground => Metadata.Tag switch
+    {
+        _ => Brushes.Transparent
     };
 
     public bool HasThumbnail => _thumbnailImage is not null;
@@ -55,10 +66,10 @@ public sealed class ClipListItem : INotifyPropertyChanged
 
     public static string TagToLabel(ClipTag tag) => tag switch
     {
-        ClipTag.Triple => "3 kills",
-        ClipTag.Quad => "4 kills",
-        ClipTag.Ace => "Ace",
-        _ => "Manuel"
+        ClipTag.Triple => "3K",
+        ClipTag.Quad => "4K",
+        ClipTag.Ace => "ACE",
+        _ => "MANUEL"
     };
 
     private static string FormatAge(DateTime when)
@@ -100,6 +111,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<ClipListItem> _items = new();
     private readonly ObservableCollection<FolderListItem> _folders = new();
     private readonly DispatcherTimer _playTimer;
+    private readonly DispatcherTimer _detailIdleTimer;
     private readonly ClipPlaybackController _clipPlayer = new();
     private bool _allowClose;
     private bool _suppressEvents;
@@ -138,6 +150,14 @@ public partial class MainWindow : Window
         _clipPlayer.EncounteredError += msg => Dispatcher.BeginInvoke(() => SetStatus(msg));
         _playTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _playTimer.Tick += (_, _) => UpdatePlaybackUi();
+        _detailIdleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+        _detailIdleTimer.Tick += (_, _) =>
+        {
+            _detailIdleTimer.Stop();
+            DetailControls.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(0.12, TimeSpan.FromMilliseconds(150)));
+            DetailControls.IsHitTestVisible = false;
+        };
         ApplyConfig(config);
         RefreshFolders();
         RefreshClips();
@@ -147,6 +167,7 @@ public partial class MainWindow : Window
 
     public event Action<AppConfig>? SettingsChanged;
     public event Action<IReadOnlyList<string>>? MissingThumbnailsRequested;
+    public event Action<string>? HeroThumbnailRequested;
 
     public void SetStatus(string status) => StatusText.Text = status;
 
@@ -236,7 +257,7 @@ public partial class MainWindow : Window
 
             if (!string.IsNullOrWhiteSpace(thumbPath) && File.Exists(thumbPath))
             {
-                item.ThumbnailImage = GetCachedThumb(thumbPath);
+                item.ThumbnailImage = GetCachedThumb(thumbPath, 360);
             }
             else
             {
@@ -261,6 +282,29 @@ public partial class MainWindow : Window
         }
 
         EmptyLibraryPanel.Visibility = _items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        LibraryHero.Visibility = _items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        var hero = _items.FirstOrDefault();
+        HeroTitle.Text = hero?.DisplayName ?? "Tes clips apparaîtront ici";
+        HeroMeta.Text = hero?.CardMeta ?? "Les clips Valorant seront affichés ici";
+        HeroThumbnail.Source = hero?.ThumbnailImage;
+        if (hero is not null)
+        {
+            HeroThumbnailRequested?.Invoke(hero.Metadata.VideoPath);
+        }
+    }
+
+    public void SetHeroThumbnail(string videoPath, string? thumbnailPath)
+    {
+        var hero = _items.FirstOrDefault();
+        if (hero is null || !string.Equals(hero.Metadata.VideoPath, videoPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(thumbnailPath) && File.Exists(thumbnailPath))
+        {
+            HeroThumbnail.Source = GetCachedThumb(thumbnailPath, 960);
+        }
     }
 
     public void ApplyConfig(AppConfig config)
@@ -287,7 +331,10 @@ public partial class MainWindow : Window
         CooldownValueText.Text = $"{config.HighlightCooldownSeconds} s";
         CalibrationInfo.Text =
             $"Zone killfeed : {_killX:0%} , {_killY:0%} · {_killW:0%} × {_killH:0%}";
-        ThemeBox.SelectedIndex = ThemeService.IndexOf(config.Theme);
+        var themeIndex = ThemeService.IndexOf(config.Theme);
+        ThemeBox.SelectedIndex = themeIndex >= 0 && themeIndex < ThemeBox.Items.Count
+            ? themeIndex
+            : 0;
         StartWithWindowsCheck.IsChecked = config.StartWithWindows;
         PauseOnBatteryCheck.IsChecked = config.PauseBufferOnBattery;
         CheckUpdatesCheck.IsChecked = config.CheckUpdatesOnStartup;
@@ -510,19 +557,36 @@ public partial class MainWindow : Window
 
     private void NavClips_OnClick(object sender, RoutedEventArgs e) => ShowClipsView();
 
+    private void HeroPlay_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_items.FirstOrDefault() is not { } item) return;
+        ClipList.SelectedItem = item;
+        OpenClipDetail(item);
+    }
+
     private void NavSettings_OnClick(object sender, RoutedEventArgs e) => ShowSettingsView();
 
     private void BackToLibrary_OnClick(object sender, RoutedEventArgs e) => ShowClipsView();
 
+    private void DetailView_OnMouseMove(object sender, MouseEventArgs e)
+    {
+        DetailControls.BeginAnimation(UIElement.OpacityProperty,
+            new DoubleAnimation(1, TimeSpan.FromMilliseconds(150)));
+        DetailControls.IsHitTestVisible = true;
+        _detailIdleTimer.Stop();
+        _detailIdleTimer.Start();
+    }
+
     private void ShowClipsView()
     {
+        _detailIdleTimer.Stop();
         StopPlaybackHard();
         _clipPlayer.Clear();
         DetailView.Visibility = Visibility.Collapsed;
         ClipsView.Visibility = Visibility.Visible;
         SettingsView.Visibility = Visibility.Collapsed;
-        NavClipsButton.Style = (Style)FindResource("SideRailButtonActive");
-        NavSettingsButton.Style = (Style)FindResource("SideRailButton");
+        NavClipsButton.Style = (Style)FindResource("NavButtonActive");
+        NavSettingsButton.Style = (Style)FindResource("NavButton");
         _suppressEvents = true;
         ClipList.SelectedItem = null;
         _suppressEvents = false;
@@ -530,23 +594,29 @@ public partial class MainWindow : Window
 
     private void ShowSettingsView()
     {
+        _detailIdleTimer.Stop();
         StopPlaybackHard();
         _clipPlayer.Clear();
         DetailView.Visibility = Visibility.Collapsed;
         ClipsView.Visibility = Visibility.Collapsed;
         SettingsView.Visibility = Visibility.Visible;
-        NavClipsButton.Style = (Style)FindResource("SideRailButton");
-        NavSettingsButton.Style = (Style)FindResource("SideRailButtonActive");
+        NavClipsButton.Style = (Style)FindResource("NavButton");
+        NavSettingsButton.Style = (Style)FindResource("NavButtonActive");
     }
 
     private void ShowDetailView(ClipListItem item)
     {
+        DetailControls.BeginAnimation(UIElement.OpacityProperty,
+            new DoubleAnimation(1, TimeSpan.FromMilliseconds(150)));
+        DetailControls.IsHitTestVisible = true;
+        _detailIdleTimer.Stop();
+        _detailIdleTimer.Start();
         DetailTitle.Text = item.DisplayName;
         ClipsView.Visibility = Visibility.Collapsed;
         SettingsView.Visibility = Visibility.Collapsed;
         DetailView.Visibility = Visibility.Visible;
-        NavClipsButton.Style = (Style)FindResource("SideRailButtonActive");
-        NavSettingsButton.Style = (Style)FindResource("SideRailButton");
+        NavClipsButton.Style = (Style)FindResource("NavButtonActive");
+        NavSettingsButton.Style = (Style)FindResource("NavButton");
         UpdateDetailNavUi();
     }
 
@@ -1023,7 +1093,7 @@ public partial class MainWindow : Window
         _suppressEvents = false;
     }
 
-    private static BitmapImage? GetCachedThumb(string thumbPath)
+    private static BitmapImage? GetCachedThumb(string thumbPath, int decodeWidth = 360)
     {
         lock (ThumbCache)
         {
@@ -1041,7 +1111,7 @@ public partial class MainWindow : Window
             img.BeginInit();
             img.CacheOption = BitmapCacheOption.OnLoad;
             img.UriSource = new Uri(thumbPath);
-            img.DecodePixelWidth = 240;
+            img.DecodePixelWidth = decodeWidth;
             img.EndInit();
             img.Freeze();
             lock (ThumbCache)
@@ -1260,7 +1330,7 @@ public partial class MainWindow : Window
             ShowDetailView(item);
             _clipPlayer.Open(item.Metadata.VideoPath);
             ApplyUserVolume();
-            StartPlayback();
+            UpdatePlayPauseLabel();
             TagBox.SelectedIndex = item.Metadata.Tag switch
             {
                 ClipTag.Triple => 1,
@@ -1726,11 +1796,11 @@ public partial class MainWindow : Window
 
     private ClipFilter SelectedFilter() => FilterBox.SelectedIndex switch
     {
-        1 => ClipFilter.Manual,
-        2 => ClipFilter.Triple,
+        1 => ClipFilter.Favorites,
+        2 => ClipFilter.Ace,
         3 => ClipFilter.Quad,
-        4 => ClipFilter.Ace,
-        5 => ClipFilter.Favorites,
+        4 => ClipFilter.Triple,
+        5 => ClipFilter.Manual,
         _ => ClipFilter.All
     };
 

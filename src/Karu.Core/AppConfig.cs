@@ -28,8 +28,8 @@ public sealed class AppConfig
     /// </summary>
     public bool OnboardingCompleted { get; set; } = true;
 
-    /// <summary>"carbon" (défaut) ou "aventurine".</summary>
-    public string Theme { get; set; } = "carbon";
+    /// <summary>"riot" (défaut rouge & noir), "carbon", etc.</summary>
+    public string Theme { get; set; } = "riot";
 
     /// <summary>Démarrage avec Windows (HKCU Run, sans admin).</summary>
     public bool StartWithWindows { get; set; }
@@ -55,7 +55,8 @@ public sealed class AppConfig
         HighlightsEnabled = true,
         AutoTriple = true,
         AutoQuad = true,
-        AutoAce = true
+        AutoAce = true,
+        Theme = "riot"
     };
 
     public void Clamp()
@@ -93,13 +94,13 @@ public sealed class AppConfig
 
     private static readonly HashSet<string> KnownThemes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "carbon", "aventurine", "plum", "ember", "forest", "ocean", "holst", "crimson"
+        "riot", "carbon", "aventurine", "plum", "ember", "forest", "ocean", "holst", "crimson", "midnight"
     };
 
     private static string NormalizeTheme(string? theme)
     {
-        var id = (theme ?? "carbon").Trim().ToLowerInvariant();
-        return KnownThemes.Contains(id) ? id : "carbon";
+        var id = (theme ?? "riot").Trim().ToLowerInvariant();
+        return KnownThemes.Contains(id) ? id : "riot";
     }
 
     public ScreenRect GetKillfeedPixelRect(int screenWidth, int screenHeight)

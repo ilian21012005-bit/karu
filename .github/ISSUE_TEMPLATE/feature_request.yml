@@ -1,0 +1,32 @@
+name: Proposer une amélioration
+description: Expliquer un besoin ou une idée pour Karu
+title: "[Idée] "
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Décris le besoin rencontré. Karu reste une application Windows locale, sans compte ni cloud;
+        les propositions doivent pouvoir fonctionner dans ce cadre.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Quel problème veux-tu résoudre ?
+      placeholder: Aujourd’hui, je dois…
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Quelle amélioration imagines-tu ?
+      placeholder: Ce qui m’aiderait serait…
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: As-tu essayé une autre solution ? (facultatif)
+      render: text
+    validations:
+      required: false

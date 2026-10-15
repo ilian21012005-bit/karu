@@ -301,5 +301,6 @@ src/Karu.Core/
 - Feedback récent : *« app toujours moche »* après le skin rouge ; besoin d’une **vraie refonte visuelle**, pas d’un énième thème.  
 - Spec skin partielle : `docs/superpowers/specs/2026-10-15-karu-rouge-skin-design.md`  
 - Context-mode Cursor est configuré dans `.cursor/` (MCP/hooks) — optionnel pour l’IA design.
+- **WpfPilot MCP** (`wpfpilot-mcp` dans `.cursor/mcp.json`) : inspect / click / screenshot de l’UI WPF pour l’agent — gratuit (MIT), pas pour l’utilisateur final.
 
 **Commence par lire `MainWindow.xaml` + `App.xaml` + `ThemeService.cs`, puis propose une direction layout avant de tout réécrire.**

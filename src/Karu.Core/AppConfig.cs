@@ -94,7 +94,7 @@ public sealed class AppConfig
 
     private static readonly HashSet<string> KnownThemes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "riot", "carbon", "aventurine", "plum", "ember", "forest", "ocean", "holst", "crimson", "midnight"
+        "riot", "carbon", "aventurine", "plum", "ember", "forest", "ocean", "holst", "crimson"
     };
 
     private static string NormalizeTheme(string? theme)

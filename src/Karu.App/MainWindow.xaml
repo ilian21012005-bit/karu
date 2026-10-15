@@ -30,8 +30,7 @@
                     Content="Clips" Click="NavClips_OnClick"/>
             <Button x:Name="NavSettingsButton" Grid.Column="2" Style="{StaticResource NavButton}"
                     Content="R&#233;glages" Click="NavSettings_OnClick"/>
-            <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0"
-                        ToolTip="{Binding ElementName=OcrHealthText, Path=Text}">
+            <StackPanel x:Name="StatusIndicator" Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
                 <Ellipse x:Name="OcrHealthDot" Width="7" Height="7" Fill="#8A8A8A" Margin="0,0,8,0" VerticalAlignment="Center"/>
                 <TextBlock x:Name="StatusText" Text="En attente de Valorant" FontSize="12" VerticalAlignment="Center"/>
             </StackPanel>
@@ -55,13 +54,28 @@
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
                                 <Setter Property="Padding" Value="5,4"/><Setter Property="Margin" Value="0,0,15,0"/>
-                                <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
-                                    <ContentPresenter x:Name="Content" TextElement.Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsSelected" Value="True"><Setter TargetName="Content" Property="TextElement.Foreground" Value="{DynamicResource TextBrush}"/><Setter TargetName="Content" Property="TextElement.FontWeight" Value="SemiBold"/></Trigger>
-                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Content" Property="TextElement.Foreground" Value="{DynamicResource TextBrush}"/></Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate></Setter.Value></Setter>
+                                <Setter Property="FocusVisualStyle" Value="{StaticResource KaruFocusVisual}"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Grid>
+                                                <ContentPresenter x:Name="Content" TextElement.Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
+                                                <Border x:Name="FilterSelection" Height="2" Background="{DynamicResource AccentBrush}"
+                                                        VerticalAlignment="Bottom" Opacity="0" IsHitTestVisible="False"/>
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Content" Property="TextElement.Foreground" Value="{DynamicResource TextBrush}"/>
+                                                    <Setter TargetName="Content" Property="TextElement.FontWeight" Value="SemiBold"/>
+                                                    <Setter TargetName="FilterSelection" Property="Opacity" Value="1"/>
+                                                </Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Content" Property="TextElement.Foreground" Value="{DynamicResource TextBrush}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
                             </Style>
                         </ListBox.ItemContainerStyle>
                         <ListBoxItem Content="Tous"/><ListBoxItem Content="Favoris"/><ListBoxItem Content="Ace"/><ListBoxItem Content="4K"/><ListBoxItem Content="3K"/><ListBoxItem Content="Manuel"/>
@@ -72,7 +86,7 @@
                         Background="{DynamicResource PanelBrush}"
                         Padding="10,4"
                         Margin="0,0,0,8">
-                    <TextBlock Text="Entre ton pseudo pour les clips auto (R&#233;glages &#8594; Highlights)."
+                    <TextBlock Text="Le clip F9 marche sans pseudo. Pour les clips auto, ajoute ton pseudo exact dans Réglages → Highlights."
                                FontSize="12"
                                TextWrapping="Wrap"/>
                 </Border>
@@ -118,6 +132,7 @@
                             <Style TargetType="ListBoxItem">
                                 <Setter Property="Padding" Value="0"/>
                                 <Setter Property="Margin" Value="0,0,8,0"/>
+                                <Setter Property="FocusVisualStyle" Value="{StaticResource KaruFocusVisual}"/>
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ListBoxItem">
@@ -131,7 +146,6 @@
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsSelected" Value="True">
-                                                    <Setter TargetName="Chip" Property="Background" Value="{DynamicResource PanelAltBrush}"/>
                                                     <Setter TargetName="Chip" Property="Background" Value="{DynamicResource PanelBrush}"/>
                                                 </Trigger>
                                                 <Trigger Property="IsMouseOver" Value="True">
@@ -217,23 +231,24 @@
                                 <Style TargetType="ListBoxItem">
                                     <Setter Property="Padding" Value="0"/>
                                     <Setter Property="Margin" Value="0,0,14,16"/>
+                                    <Setter Property="FocusVisualStyle" Value="{StaticResource KaruFocusVisual}"/>
                                     <Setter Property="Template">
                                         <Setter.Value>
                                             <ControlTemplate TargetType="ListBoxItem">
-                                                <Border x:Name="Card"
-                                                        Background="Transparent"
-                                                        BorderThickness="0"
-                                                        Width="220"
-                                                        Cursor="Hand"
-                                                        SnapsToDevicePixels="True">
+                                                <Grid>
+                                                    <Border x:Name="Card" Background="Transparent" BorderThickness="0"
+                                                            Width="220" Cursor="Hand" SnapsToDevicePixels="True"/>
                                                     <ContentPresenter/>
-                                                </Border>
+                                                    <Border x:Name="SelectionMark" Height="2" Background="{DynamicResource AccentBrush}"
+                                                            VerticalAlignment="Bottom" Opacity="0" IsHitTestVisible="False"/>
+                                                </Grid>
                                                 <ControlTemplate.Triggers>
                                                     <Trigger Property="IsMouseOver" Value="True">
                                                         <Setter TargetName="Card" Property="Background" Value="{DynamicResource PanelBrush}"/>
                                                     </Trigger>
                                                     <Trigger Property="IsSelected" Value="True">
                                                         <Setter TargetName="Card" Property="Background" Value="{DynamicResource PanelBrush}"/>
+                                                        <Setter TargetName="SelectionMark" Property="Opacity" Value="1"/>
                                                     </Trigger>
                                                 </ControlTemplate.Triggers>
                                             </ControlTemplate>
@@ -588,168 +603,117 @@
                           Visibility="Collapsed"
                           VerticalScrollBarVisibility="Auto"
                           Margin="24,20,24,20">
-                <StackPanel MaxWidth="560" HorizontalAlignment="Left">
-                    <Border Background="Transparent"
-                            CornerRadius="0"
-                            Padding="4,12"
-                            Margin="0,0,0,16">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource SectionTitle}" Text="APPARENCE" FontSize="12" Margin="0,0,0,8"/>
-                            
-                            <TextBlock Text="Th&#232;me"
-                                       FontWeight="SemiBold"
-                                       Margin="0,0,0,6"/>
-                            <ComboBox x:Name="ThemeBox"
-                                      SelectedIndex="0"
-                                      SelectionChanged="ThemeBox_OnSelectionChanged">
-                                <ComboBoxItem Content="Riot" Tag="riot"/>
-                            </ComboBox>
-                            <CheckBox x:Name="StartWithWindowsCheck"
-                                      Content="D&#233;marrer Karu avec Windows"
-                                      Checked="SettingsCheck_OnChanged"
-                                      Unchecked="SettingsCheck_OnChanged"/>
-                        </StackPanel>
-                    </Border>
+                <StackPanel MaxWidth="760" HorizontalAlignment="Center" Margin="12,8,12,28">
+                    <TextBlock Text="RÉGLAGES" FontFamily="{StaticResource DisplayFont}" FontSize="30"
+                               FontWeight="Bold" Margin="0,0,0,4"/>
+                    <TextBlock Text="Configure ta capture et tes clips automatiques."
+                               Foreground="{DynamicResource MutedBrush}" FontSize="13" Margin="0,0,0,28"/>
 
-                    <Border Background="Transparent"
-                            CornerRadius="0"
-                            Padding="4,12"
-                            Margin="0,0,0,16">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource SectionTitle}" Text="CAPTURE" FontSize="12" Margin="0,0,0,8"/>
-                            
-                            <CheckBox x:Name="PauseOnBatteryCheck"
-                                      Content="Suspendre le buffer sur batterie (laptop)"
-                                      Checked="SettingsCheck_OnChanged"
-                                      Unchecked="SettingsCheck_OnChanged"/>
-                            <CheckBox x:Name="CheckUpdatesCheck"
-                                      Content="V&#233;rifier les mises &#224; jour au d&#233;marrage"
-                                      Checked="SettingsCheck_OnChanged"
-                                      Unchecked="SettingsCheck_OnChanged"/>
-                            <Button Content="V&#233;rifier les mises &#224; jour maintenant"
-                                    Margin="0,8,0,6"
-                                    HorizontalAlignment="Stretch"
-                                    Click="CheckUpdates_OnClick"/>
-                            <TextBlock x:Name="UpdateInfoText"
-                                       Foreground="{DynamicResource MutedBrush}"
-                                       FontSize="11"
-                                       TextWrapping="Wrap"
-                                       Text=""/>
-                        </StackPanel>
-                    </Border>
+                    <StackPanel Margin="0,0,0,30">
+                        <TextBlock Text="CAPTURE" FontFamily="{StaticResource DisplayFont}" FontSize="15"
+                                   FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBlock Text="Buffer, raccourci et emplacement des clips."
+                                   Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,0,0,16"/>
+                        <CheckBox x:Name="PauseOnBatteryCheck"
+                                  Content="Suspendre le buffer sur batterie (laptop)"
+                                  Margin="0,0,0,12"
+                                  Checked="SettingsCheck_OnChanged"
+                                  Unchecked="SettingsCheck_OnChanged"/>
+                        <DockPanel Margin="0,0,0,5">
+                            <TextBlock Text="Durée du replay" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="DurationValueText" DockPanel.Dock="Right" Text="5 min"
+                                       Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold"/>
+                        </DockPanel>
+                        <Slider x:Name="DurationSlider" Minimum="15" Maximum="600" TickFrequency="15"
+                                IsSnapToTickEnabled="True" Value="300" Margin="0,0,0,18"
+                                ValueChanged="DurationSlider_OnValueChanged"/>
+                        <TextBlock Text="Raccourci" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                        <TextBox x:Name="HotkeyBox" IsReadOnly="True" Text="F9"
+                                 PreviewKeyDown="HotkeyBox_OnPreviewKeyDown" Margin="0,0,0,5"/>
+                        <TextBlock Text="Clique dans le champ puis appuie sur la touche souhaitée."
+                                   Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,0,0,18"/>
+                        <TextBlock Text="Dossier des clips" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                        <DockPanel LastChildFill="True">
+                            <Button DockPanel.Dock="Right" Content="Choisir…" MinWidth="112"
+                                    Margin="10,0,0,0" Click="BrowseButton_OnClick"/>
+                            <TextBox x:Name="FolderBox" IsReadOnly="True" TextWrapping="NoWrap"
+                                     ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
+                                     VerticalContentAlignment="Center"/>
+                        </DockPanel>
+                    </StackPanel>
 
-                    <Border Background="Transparent"
-                            CornerRadius="0"
-                            Padding="4,12"
-                            Margin="0,0,0,16">
-                        <StackPanel>
-                            <DockPanel Margin="0,0,0,6">
-                                <TextBlock Text="Dur&#233;e du replay" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DurationValueText"
-                                           DockPanel.Dock="Right"
-                                           Text="5 min"
-                                           Foreground="{DynamicResource AccentBrush}"
-                                           HorizontalAlignment="Right"/>
-                            </DockPanel>
-                            <Slider x:Name="DurationSlider"
-                                    Minimum="15"
-                                    Maximum="600"
-                                    TickFrequency="15"
-                                    IsSnapToTickEnabled="True"
-                                    Value="300"
-                                    Margin="0,0,0,18"
-                                    ValueChanged="DurationSlider_OnValueChanged"/>
+                    <StackPanel Margin="0,0,0,30">
+                        <TextBlock Text="HIGHLIGHTS" FontFamily="{StaticResource DisplayFont}" FontSize="15"
+                                   FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBlock Text="Détection du killfeed et sauvegarde automatique des meilleures actions."
+                                   Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                        <CheckBox x:Name="HighlightsEnabledCheck" Content="Activer la détection killfeed"
+                                  Margin="0,0,0,10" Checked="SettingsCheck_OnChanged" Unchecked="SettingsCheck_OnChanged"/>
+                        <CheckBox x:Name="AutoTripleCheck" Content="Clip auto sur 3 kills"
+                                  Margin="0,0,0,10" Checked="SettingsCheck_OnChanged" Unchecked="SettingsCheck_OnChanged"/>
+                        <CheckBox x:Name="AutoQuadCheck" Content="Clip auto sur 4 kills"
+                                  Margin="0,0,0,10" Checked="SettingsCheck_OnChanged" Unchecked="SettingsCheck_OnChanged"/>
+                        <CheckBox x:Name="AutoAceCheck" Content="Clip auto sur Ace (5 kills)"
+                                  Margin="0,0,0,18" Checked="SettingsCheck_OnChanged" Unchecked="SettingsCheck_OnChanged"/>
+                        <TextBlock Text="Pseudo in-game" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                        <TextBox x:Name="PlayerNameBox" Margin="0,0,0,18" LostFocus="PlayerNameBox_OnLostFocus"/>
+                        <DockPanel Margin="0,0,0,5">
+                            <TextBlock Text="Délai entre deux clips auto" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="CooldownValueText" DockPanel.Dock="Right" Text="15 s"
+                                       Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold"/>
+                        </DockPanel>
+                        <Slider x:Name="CooldownSlider" Minimum="5" Maximum="60" TickFrequency="5"
+                                IsSnapToTickEnabled="True" Value="15" Margin="0,0,0,0"
+                                ValueChanged="CooldownSlider_OnValueChanged"/>
+                    </StackPanel>
 
-                            <TextBlock Text="Raccourci" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                            <TextBox x:Name="HotkeyBox"
-                                     IsReadOnly="True"
-                                     Text="F9"
-                                     PreviewKeyDown="HotkeyBox_OnPreviewKeyDown"
-                                     Margin="0,0,0,6"/>
-                            <TextBlock Text="Clique dans la case puis appuie sur la combo."
-                                       Foreground="{DynamicResource MutedBrush}"
-                                       FontSize="11"
-                                       Margin="0,0,0,18"/>
+                    <StackPanel Margin="0,0,0,30">
+                        <TextBlock Text="CALIBRATION" FontFamily="{StaticResource DisplayFont}" FontSize="15"
+                                   FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBlock Text="Ajuste la zone où Karu lit le killfeed."
+                                   Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,0,0,14"/>
+                        <Button Content="Calibrer la zone killfeed…" HorizontalAlignment="Left" MinWidth="220"
+                                Click="Calibrate_OnClick" Margin="0,0,0,8"/>
+                        <TextBlock x:Name="CalibrationInfo" Foreground="{DynamicResource MutedBrush}"
+                                   FontSize="11" TextWrapping="Wrap"/>
+                    </StackPanel>
 
-                            <TextBlock Text="Dossier des clips" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                            <TextBox x:Name="FolderBox"
-                                     IsReadOnly="True"
-                                     TextWrapping="Wrap"
-                                     Margin="0,0,0,8"/>
-                            <Button Content="Choisir un dossier..."
-                                    HorizontalAlignment="Stretch"
-                                    Click="BrowseButton_OnClick"/>
-                        </StackPanel>
-                    </Border>
+                    <StackPanel Margin="0,0,0,24">
+                        <TextBlock Text="APPARENCE" FontFamily="{StaticResource DisplayFont}" FontSize="15"
+                                   FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBlock Text="Choisis la palette de Karu."
+                                   Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,0,0,14"/>
+                        <TextBlock Text="Thème" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                        <ComboBox x:Name="ThemeBox" SelectedIndex="0" Width="260" HorizontalAlignment="Left"
+                                  SelectionChanged="ThemeBox_OnSelectionChanged">
+                            <ComboBoxItem Content="Riot (rouge et noir)" Tag="riot"/>
+                            <ComboBoxItem Content="Carbon (bleu sombre)" Tag="carbon"/>
+                            <ComboBoxItem Content="Aventurine (bordeaux)" Tag="aventurine"/>
+                            <ComboBoxItem Content="Plum (violet)" Tag="plum"/>
+                            <ComboBoxItem Content="Ember (terre)" Tag="ember"/>
+                            <ComboBoxItem Content="Forest (vert)" Tag="forest"/>
+                            <ComboBoxItem Content="Ocean (bleu)" Tag="ocean"/>
+                            <ComboBoxItem Content="Holst (rose)" Tag="holst"/>
+                            <ComboBoxItem Content="Crimson (rouge)" Tag="crimson"/>
+                        </ComboBox>
+                        <TextBlock Text="APPLICATION" FontFamily="{StaticResource DisplayFont}" FontSize="15"
+                                   FontWeight="Bold" Margin="0,24,0,4"/>
+                        <TextBlock Text="Démarrage et mises à jour."
+                                   Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,0,0,14"/>
+                        <CheckBox x:Name="StartWithWindowsCheck" Content="Démarrer Karu avec Windows"
+                                  Margin="0,0,0,8" Checked="SettingsCheck_OnChanged" Unchecked="SettingsCheck_OnChanged"/>
+                        <CheckBox x:Name="CheckUpdatesCheck" Content="Vérifier les mises à jour au démarrage"
+                                  Margin="0,0,0,10" Checked="SettingsCheck_OnChanged" Unchecked="SettingsCheck_OnChanged"/>
+                        <Button Content="Vérifier les mises à jour maintenant" HorizontalAlignment="Left"
+                                MinWidth="240" Click="CheckUpdates_OnClick" Margin="0,0,0,6"/>
+                        <TextBlock x:Name="UpdateInfoText" Foreground="{DynamicResource MutedBrush}"
+                                   FontSize="11" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="AppVersionText" Foreground="{DynamicResource MutedBrush}"
+                                   FontSize="10" Margin="0,14,0,0"/>
+                    </StackPanel>
 
-                    <Border Background="Transparent"
-                            CornerRadius="0"
-                            Padding="4,12"
-                            Margin="0,0,0,16">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource SectionTitle}" Text="HIGHLIGHTS" FontSize="12" Margin="0,0,0,8"/>
-                            
-                            <TextBlock Text="Zone &#233;cran ~3&#215;/s, pas d&#8217;overlay. Active seulement ce dont tu as besoin."
-                                       Foreground="{DynamicResource MutedBrush}"
-                                       FontSize="11"
-                                       TextWrapping="Wrap"
-                                       Margin="0,0,0,12"/>
-
-                            <CheckBox x:Name="HighlightsEnabledCheck"
-                                      Content="Activer la d&#233;tection killfeed"
-                                      Checked="SettingsCheck_OnChanged"
-                                      Unchecked="SettingsCheck_OnChanged"/>
-                            <CheckBox x:Name="AutoTripleCheck"
-                                      Content="Clip auto sur 3 kills"
-                                      Checked="SettingsCheck_OnChanged"
-                                      Unchecked="SettingsCheck_OnChanged"/>
-                            <CheckBox x:Name="AutoQuadCheck"
-                                      Content="Clip auto sur 4 kills"
-                                      Checked="SettingsCheck_OnChanged"
-                                      Unchecked="SettingsCheck_OnChanged"/>
-                            <CheckBox x:Name="AutoAceCheck"
-                                      Content="Clip auto sur Ace (5 kills)"
-                                      Margin="0,0,0,14"
-                                      Checked="SettingsCheck_OnChanged"
-                                      Unchecked="SettingsCheck_OnChanged"/>
-
-                            <TextBlock Text="Pseudo in-game (exact)" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                            <TextBox x:Name="PlayerNameBox"
-                                     Margin="0,0,0,14"
-                                     LostFocus="PlayerNameBox_OnLostFocus"/>
-
-                            <DockPanel Margin="0,0,0,6">
-                                <TextBlock Text="Cooldown entre clips auto" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="CooldownValueText"
-                                           DockPanel.Dock="Right"
-                                           Text="15 s"
-                                           Foreground="{DynamicResource AccentBrush}"/>
-                            </DockPanel>
-                            <Slider x:Name="CooldownSlider"
-                                    Minimum="5"
-                                    Maximum="60"
-                                    TickFrequency="5"
-                                    IsSnapToTickEnabled="True"
-                                    Value="15"
-                                    Margin="0,0,0,14"
-                                    ValueChanged="CooldownSlider_OnValueChanged"/>
-
-                            <TextBlock Style="{StaticResource SectionTitle}" Text="CALIBRATION" FontSize="12" Margin="0,18,0,8"/>
-                            <Button Content="Calibrer la zone killfeed..."
-                                    Click="Calibrate_OnClick"
-                                    Margin="0,0,0,8"/>
-                            <TextBlock x:Name="CalibrationInfo"
-                                       Foreground="{DynamicResource MutedBrush}"
-                                       FontSize="11"
-                                       TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </Border>
-
-                    <TextBlock Text="Lance Karu avant Valo. Plein &#233;cran fen&#234;tr&#233; recommand&#233;."
-                               Foreground="{DynamicResource MutedBrush}"
-                               FontSize="11"
-                               TextWrapping="Wrap"
-                               Margin="4,0,0,0"/>
+                    <TextBlock Text="Lance Karu avant Valorant. Le mode plein écran fenêtré est recommandé."
+                               Foreground="{DynamicResource MutedBrush}" FontSize="11" TextWrapping="Wrap"/>
                 </StackPanel>
             </ScrollViewer>
         </Grid>

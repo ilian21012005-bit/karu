@@ -16,8 +16,18 @@ Encodeur **NVIDIA NVENC** : la puce dédiée travaille, le jeu n’est presque p
 - Valorant en **Plein écran fenêtré** recommandé
 
 ### SmartScreen
-Si Windows affiche « a protégé votre PC » : **Informations complémentaires** → **Exécuter quand même**  
-(le setup n’est pas encore signé Authenticode).
+L’installateur n’est pas encore signé Authenticode; SmartScreen peut donc afficher un avertissement. Télécharge-le uniquement depuis la page Releases officielle du projet. Les prochaines releases incluront un fichier `.sha256` pour vérifier que le téléchargement correspond bien au setup publié. Cette empreinte contrôle l’intégrité du fichier, mais ne prouve pas l’identité de son éditeur.
+
+Pour vérifier une release qui fournit le fichier de checksum, place le setup et son `.sha256` dans le même dossier, ouvre PowerShell dans ce dossier et lance :
+
+```powershell
+$setup = Get-ChildItem .\Karu-Setup-*.exe | Select-Object -First 1
+$expected = (Get-Content "$($setup.FullName).sha256").Split(' ')[0]
+$actual = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+$actual -eq $expected
+```
+
+Le résultat doit être `True`. Si le résultat est `False`, ne lance pas le setup. Les anciennes releases peuvent ne pas encore avoir de fichier `.sha256`.
 
 Désinstallation : Paramètres Windows → Applications → Karu, ou le raccourci « Désinstaller » dans le menu Démarrer.
 
@@ -42,6 +52,12 @@ Désinstallation : Paramètres Windows → Applications → Karu, ou le raccourc
 Réglages : `%AppData%\Karu\config.json`  
 Clips : `Vidéos\Karu` (métadonnées dans un dossier `.karu`)  
 Buffer temp : `%LocalAppData%\Karu\buffer`
+
+## Aide et signalement
+
+Dans **Réglages**, la version de Karu apparaît en bas de la section Application. Pour un problème, ouvre un [rapport de bug](https://github.com/ilian21012005-bit/karu/issues/new?template=bug_report.yml) et indique cette version, ta version de Windows et le symptôme observé.
+
+Le journal local est dans `%LocalAppData%\Karu\log.txt`. Si tu en partages un extrait, relis-le d’abord et masque ton nom Windows, ton pseudo en jeu et les chemins de tes fichiers. N’ajoute pas de clip vidéo ni ton `config.json` à un ticket public.
 
 ## Build développeur
 

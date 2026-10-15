@@ -48,11 +48,21 @@ jobs:
         run: |
           powershell -File tools/build-installer.ps1 -Version "${{ steps.ver.outputs.version }}"
 
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem artifacts/installer/Karu-Setup-*.exe | Select-Object -First 1
+          if (-not $setup) { throw "Setup exe not found" }
+          $hash = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($setup.Name)" | Set-Content -Path "$($setup.FullName).sha256" -Encoding ascii
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Karu-Setup-${{ steps.ver.outputs.version }}
-          path: artifacts/installer/Karu-Setup-*.exe
+          path: |
+            artifacts/installer/Karu-Setup-*.exe
+            artifacts/installer/Karu-Setup-*.exe.sha256
           if-no-files-found: error
 
       - name: Create GitHub Release
@@ -61,13 +71,16 @@ jobs:
         with:
           name: Karu ${{ steps.ver.outputs.version }}
           generate_release_notes: true
-          files: artifacts/installer/Karu-Setup-*.exe
+          files: |
+            artifacts/installer/Karu-Setup-*.exe
+            artifacts/installer/Karu-Setup-*.exe.sha256
           body: |
             ## Installation Windows
 
             1. Télécharge **Karu-Setup-${{ steps.ver.outputs.version }}.exe**
-            2. Lance le setup (assistant clair en français)
-            3. Ouvre **Karu** depuis le Bureau / menu Démarrer
+            2. Télécharge aussi **Karu-Setup-${{ steps.ver.outputs.version }}.exe.sha256**
+            3. Compare l’empreinte SHA-256 du setup avec le fichier `.sha256` (voir les instructions dans le README)
+            4. Lance le setup (assistant en français), puis ouvre **Karu** depuis le Bureau / menu Démarrer
 
             ### Prérequis
             - Windows 10/11 64 bits
@@ -75,5 +88,4 @@ jobs:
             - Valorant en *Plein écran fenêtré* recommandé
 
             ### SmartScreen
-            Si Windows bloque le fichier : *Informations complémentaires* → *Exécuter quand même*
-            (binaire non signé Authenticode pour l’instant).
+            L’installateur n’est pas signé Authenticode. SmartScreen peut donc afficher un avertissement même si l’empreinte correspond. Vérifie que tu as téléchargé les deux fichiers depuis cette release officielle avant de continuer. L’empreinte vérifie que le setup correspond au fichier publié avec cette release; elle ne constitue pas une signature de l’éditeur.

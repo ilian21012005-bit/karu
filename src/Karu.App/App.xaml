@@ -44,6 +44,20 @@
         <!-- ================================================================= -->
         <!-- BUTTONS                                                           -->
         <!-- ================================================================= -->
+        <Style x:Key="KaruFocusVisual" TargetType="Control">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Control">
+                        <Border Margin="-3"
+                                BorderBrush="{DynamicResource TextBrush}"
+                                BorderThickness="1"
+                                IsHitTestVisible="False"
+                                SnapsToDevicePixels="True"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="Button">
             <Setter Property="Background" Value="{DynamicResource ButtonBgBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
@@ -57,6 +71,7 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource KaruFocusVisual}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -140,7 +155,10 @@
                                 </Trigger.ExitActions>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.45"/>
+                                <Setter Property="Opacity" Value="0.55"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                                <Setter TargetName="HoverOverlay" Property="Opacity" Value="0"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ButtonBgBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -168,6 +186,10 @@
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.55"/>
+                    <Setter Property="Cursor" Value="Arrow"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -256,7 +278,9 @@
                                 </Trigger.ExitActions>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.45"/>
+                                <Setter Property="Opacity" Value="0.55"/>
+                                <Setter TargetName="HoverOverlay" Property="Opacity" Value="0"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -453,6 +477,7 @@
             <Setter Property="CaretBrush" Value="{DynamicResource TextBrush}"/>
             <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}"/>
             <Setter Property="SelectionOpacity" Value="0.45"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Template">
@@ -534,7 +559,8 @@
                                 </Trigger.ExitActions>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.45"/>
+                                <Setter Property="Opacity" Value="0.55"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -553,6 +579,7 @@
             <Setter Property="Margin" Value="0,0,0,8"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource KaruFocusVisual}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
@@ -637,10 +664,12 @@
                                 </Trigger.ExitActions>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
+                                <Setter TargetName="Box" Property="Background" Value="{DynamicResource ButtonHoverBrush}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.45"/>
+                                <Setter Property="Opacity" Value="0.55"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -661,6 +690,7 @@
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource KaruFocusVisual}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ComboBoxItem">
@@ -680,6 +710,8 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ButtonHoverBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
                                 <Trigger.EnterActions>
                                     <BeginStoryboard>
                                         <Storyboard>
@@ -703,6 +735,10 @@
                                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentDimBrush}"/>
                                 <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
                             </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -720,6 +756,7 @@
             <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource KaruFocusVisual}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ComboBox">
@@ -859,6 +896,12 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.55"/>
+                    <Setter Property="Cursor" Value="Arrow"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <!-- ================================================================= -->
@@ -946,7 +989,7 @@
                                 </Trigger.ExitActions>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.45"/>
+                                <Setter Property="Opacity" Value="0.55"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -978,6 +1021,7 @@
             <Setter Property="Margin" Value="2"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource KaruFocusVisual}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
@@ -1037,6 +1081,7 @@
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="2"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource KaruFocusVisual}"/>
             <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -1188,6 +1233,7 @@
             <Setter Property="IsMoveToPointEnabled" Value="True"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Height" Value="22"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource KaruFocusVisual}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Slider">
@@ -1262,6 +1308,10 @@
                             </ControlTemplate>
                         </Setter.Value>
                     </Setter>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.55"/>
+                    <Setter Property="Cursor" Value="Arrow"/>
                 </Trigger>
             </Style.Triggers>
         </Style>

@@ -13,6 +13,8 @@ public sealed class OnboardingWindow : Window
     private readonly CheckBox _autoClipsCheck;
     private readonly TextBlock _stepTitle;
     private readonly TextBlock _stepNumber;
+    private readonly TextBlock _playerHint;
+    private readonly TextBlock _hotkeyHint;
     private readonly StackPanel[] _steps;
     private readonly Button _backButton;
     private readonly Button _nextButton;
@@ -27,8 +29,8 @@ public sealed class OnboardingWindow : Window
     public OnboardingWindow(AppConfig seed)
     {
         Title = "Bienvenue sur Karu";
-        Width = 560;
-        Height = 500;
+        Width = 580;
+        Height = 540;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ResizeMode = ResizeMode.NoResize;
         Background = (Brush)Application.Current.Resources["BgBrush"];
@@ -48,16 +50,52 @@ public sealed class OnboardingWindow : Window
         header.Children.Add(_stepNumber);
         _stepTitle = new TextBlock { FontSize = 30, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap };
         header.Children.Add(_stepTitle);
+        var compatibilityHint = new TextBlock
+        {
+            Text = "Nécessite une carte NVIDIA compatible NVENC. Karu vérifie la capture au démarrage.",
+            Foreground = muted,
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        header.Children.Add(compatibilityHint);
         Grid.SetRow(header, 0);
         root.Children.Add(header);
 
         _playerBox = new TextBox { Text = seed.PlayerName ?? "", Padding = new Thickness(10, 8, 10, 8), FontSize = 15 };
+        _playerHint = new TextBlock
+        {
+            Text = "Facultatif pour F9. Requis pour les clips automatiques : saisis le pseudo tel qu’il apparaît en jeu.",
+            Foreground = muted,
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
         _hotkeyBox = new TextBox { Text = string.IsNullOrWhiteSpace(seed.Hotkey) ? AppConfig.DefaultHotkey : seed.Hotkey, Padding = new Thickness(10, 8, 10, 8), FontSize = 15, IsReadOnly = true };
+        _hotkeyHint = new TextBlock
+        {
+            Text = "Appuie sur une touche F1–F24, une lettre ou un chiffre. Tu pourras la changer dans Réglages.",
+            Foreground = muted,
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
         _hotkeyBox.PreviewKeyDown += (_, e) =>
         {
             e.Handled = true;
             var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
-            _hotkeyBox.Text = key.ToString();
+            var candidate = key.ToString();
+            if (HotkeyParser.TryParse(candidate, out var parsed))
+            {
+                _hotkeyBox.Text = HotkeyParser.ToDisplay(parsed);
+                _hotkeyHint.Text = "F9 sauvegarde les dernières minutes du buffer. Ce raccourci fonctionne aussi lorsque Karu est en arrière-plan.";
+                _hotkeyHint.Foreground = muted;
+            }
+            else
+            {
+                _hotkeyHint.Text = "Cette touche ne fonctionne pas seule. Essaie F1–F24, une lettre ou un chiffre.";
+                _hotkeyHint.Foreground = accent;
+            }
         };
         _autoClipsCheck = new CheckBox
         {
@@ -68,9 +106,17 @@ public sealed class OnboardingWindow : Window
 
         _steps =
         [
-            Step("Pseudo Valorant exact", "Entre le pseudo affiché en jeu pour reconnaître les éliminations.", _playerBox),
-            Step("Clip manuel", "Choisis le raccourci pour sauvegarder les dernières minutes.", _hotkeyBox),
-            Step("Clips automatiques", "La détection killfeed fonctionne quand Valorant est au premier plan.", _autoClipsCheck)
+            Step("Pseudo Valorant", _playerBox, _playerHint),
+            Step("Raccourci de sauvegarde", _hotkeyBox, _hotkeyHint),
+            Step("Clips automatiques", _autoClipsCheck,
+                new TextBlock
+                {
+                    Text = "La détection lit le killfeed uniquement quand Valorant est au premier plan. Elle ne fonctionne qu’avec le pseudo exact saisi à l’étape précédente.",
+                    Foreground = muted,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 10, 0, 0)
+                })
         ];
         var body = new Grid();
         foreach (var panel in _steps) body.Children.Add(panel);
@@ -79,7 +125,7 @@ public sealed class OnboardingWindow : Window
 
         _backButton = new Button { Content = "Retour", MinWidth = 90, Margin = new Thickness(0, 0, 8, 0) };
         _backButton.Click += (_, _) => ShowStep(_step - 1);
-        _nextButton = new Button { Content = "Continuer", MinWidth = 120, Height = 40, Background = accent, Foreground = Brushes.White, BorderThickness = new Thickness(0), FontWeight = FontWeights.SemiBold };
+        _nextButton = new Button { Content = "Continuer", MinWidth = 120, Height = 40, Background = accent, Foreground = Brushes.White, BorderThickness = new Thickness(0), FontWeight = FontWeights.SemiBold, IsDefault = true };
         _nextButton.Click += (_, _) =>
         {
             if (_step < 2) ShowStep(_step + 1);
@@ -94,19 +140,12 @@ public sealed class OnboardingWindow : Window
         ShowStep(0);
     }
 
-    private static StackPanel Step(string label, string help, UIElement control)
+    private static StackPanel Step(string label, UIElement control, UIElement help)
     {
         var panel = new StackPanel();
         panel.Children.Add(new TextBlock { Text = label, FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 7) });
         panel.Children.Add(control);
-        panel.Children.Add(new TextBlock
-        {
-            Text = help,
-            Foreground = (Brush)Application.Current.Resources["MutedBrush"],
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 10, 0, 0)
-        });
+        panel.Children.Add(help);
         return panel;
     }
 
@@ -118,11 +157,23 @@ public sealed class OnboardingWindow : Window
         _stepTitle.Text = _step switch { 0 => "Pour commencer", 1 => "Choisis ta touche", _ => "Tes clips, automatiquement" };
         _backButton.Visibility = _step == 0 ? Visibility.Collapsed : Visibility.Visible;
         _nextButton.Content = _step == 2 ? "Terminer" : "Continuer";
+        if (_step == 0)
+        {
+            _playerBox.Focus();
+            _playerBox.CaretIndex = _playerBox.Text.Length;
+        }
     }
 
     private void Finish(bool calibrate)
     {
         PlayerName = (_playerBox.Text ?? "").Trim();
+        if (_autoClipsCheck.IsChecked == true && string.IsNullOrWhiteSpace(PlayerName))
+        {
+            _playerHint.Text = "Saisis ton pseudo pour activer les clips automatiques, ou désactive cette option à l’étape suivante. F9 reste disponible sans pseudo.";
+            _playerHint.Foreground = (Brush)Application.Current.Resources["AccentBrush"];
+            ShowStep(0);
+            return;
+        }
         Hotkey = string.IsNullOrWhiteSpace(_hotkeyBox.Text) ? AppConfig.DefaultHotkey : _hotkeyBox.Text.Trim();
         AutoClipsEnabled = _autoClipsCheck.IsChecked == true;
         CalibrateRequested = calibrate;

@@ -2,6 +2,10 @@
   "mcpServers": {
     "context-mode": {
       "command": "context-mode"
+    },
+    "wpfpilot-mcp": {
+      "command": "npx",
+      "args": ["-y", "@skuzadev/wpfpilot-mcp"]
     }
   }
 }

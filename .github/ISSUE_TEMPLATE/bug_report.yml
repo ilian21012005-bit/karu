@@ -1,0 +1,74 @@
+name: Signaler un bug
+description: Décrire un problème avec Karu
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Merci de décrire le problème clairement. Ne joins pas de clip, de fichier `config.json`
+        ou d’information personnelle à un ticket public. Masque les noms Windows, pseudos et chemins
+        avant de partager un extrait de journal.
+  - type: input
+    id: version
+    attributes:
+      label: Version de Karu
+      description: Affichée en bas de Réglages → Application.
+      placeholder: 1.1.3
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Version de Windows
+      description: Par exemple Windows 11 24H2.
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: Carte graphique NVIDIA
+      description: Si tu la connais; sinon indique « inconnue ».
+      placeholder: GeForce RTX 3060
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Où se produit le problème ?
+      options:
+        - Installation ou démarrage
+        - Capture et raccourci F9
+        - Clips automatiques
+        - Bibliothèque ou lecture vidéo
+        - Réglages
+        - Autre
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Étapes pour reproduire
+      description: Indique ce que tu as fait, dans l’ordre.
+      placeholder: |
+        1. J’ai lancé…
+        2. J’ai cliqué/appuyé sur…
+        3. Le problème est apparu…
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Résultat attendu et résultat obtenu
+      placeholder: Explique ce qui aurait dû se passer et ce qui s’est passé à la place.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Extrait du journal (facultatif)
+      description: Le fichier est dans %LocalAppData%\Karu\log.txt. Relis et masque les données personnelles avant de coller un extrait.
+      render: text
+    validations:
+      required: false

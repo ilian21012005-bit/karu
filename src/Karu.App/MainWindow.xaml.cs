@@ -143,6 +143,7 @@ public partial class MainWindow : Window
     public MainWindow(AppConfig config)
     {
         InitializeComponent();
+        AppVersionText.Text = $"Karu {UpdateChecker.CurrentVersion}";
         ClipList.ItemsSource = _items;
         FolderList.ItemsSource = _folders;
         PlayerView.MediaPlayer = _clipPlayer.MediaPlayer;
@@ -169,7 +170,45 @@ public partial class MainWindow : Window
     public event Action<IReadOnlyList<string>>? MissingThumbnailsRequested;
     public event Action<string>? HeroThumbnailRequested;
 
-    public void SetStatus(string status) => StatusText.Text = status;
+    public void SetStatus(string status)
+    {
+        StatusText.Text = status;
+        var lower = status.ToLowerInvariant();
+        var isError = lower.Contains("erreur") || lower.Contains("introuvable") ||
+                      lower.Contains("indisponible") || lower.Contains("échoué") ||
+                      lower.Contains("interrompue");
+        var isWarning = lower.Contains("pause") || lower.Contains("focus") ||
+                        lower.Contains("pseudo manquant") || lower.Contains("vérification");
+        OcrHealthDot.Fill = isError
+            ? (Brush)Application.Current.Resources["DangerBrush"]
+            : isWarning
+                ? new SolidColorBrush(Color.FromRgb(0xF0, 0xA0, 0x30))
+                : status.StartsWith("Buffer actif", StringComparison.OrdinalIgnoreCase)
+                    ? new SolidColorBrush(Color.FromRgb(0x3D, 0xC2, 0x72))
+                    : new SolidColorBrush(Color.FromRgb(0x8A, 0x8A, 0x8A));
+        UpdateStatusTooltip();
+    }
+
+    private void UpdateStatusTooltip()
+    {
+        var status = StatusText.Text;
+        var hint = status switch
+        {
+            CaptureStatusText.WaitingForValorant => "Démarre Valorant. Karu lancera le buffer automatiquement.",
+            CaptureStatusText.BufferActive => "Le buffer tourne. Appuie sur F9 pour enregistrer les dernières minutes.",
+            CaptureStatusText.BufferDetectionOn => "Le buffer tourne et les clips automatiques sont prêts. F9 fonctionne aussi à tout moment.",
+            CaptureStatusText.BufferNeedFocus => "Le buffer continue. Passe Valorant au premier plan pour activer la détection automatique.",
+            CaptureStatusText.BufferMissingPlayer => "F9 reste disponible. Pour les clips automatiques, ajoute ton pseudo exact dans Réglages → Highlights.",
+            CaptureStatusText.BufferPausedBattery => "Le buffer est suspendu pour économiser la batterie. Branche le PC ou désactive cette option dans Réglages → Capture.",
+            "Encodeur introuvable" => "Karu ne trouve pas FFmpeg. Réinstalle Karu depuis la dernière version publiée, puis relance l’application.",
+            "Encodeur indisponible" => "Vérifie que ton PC possède une carte NVIDIA compatible NVENC et que son pilote est à jour.",
+            "Vérification du PC…" => "Karu vérifie que l’encodeur vidéo requis est disponible. Cela ne prend que quelques secondes.",
+            _ when status.StartsWith("Buffer actif", StringComparison.OrdinalIgnoreCase) => "Le buffer tourne. Appuie sur F9 pour enregistrer les dernières minutes.",
+            _ => "Détail : " + status
+        };
+        var ocr = OcrHealthText.Text;
+        StatusIndicator.ToolTip = string.IsNullOrWhiteSpace(ocr) ? hint : hint + Environment.NewLine + Environment.NewLine + ocr;
+    }
 
     public void SetPlayerNameBanner(bool show)
     {
@@ -180,9 +219,6 @@ public partial class MainWindow : Window
     {
         var age = DateTime.UtcNow - utc;
         var fresh = age.TotalSeconds < 8;
-        OcrHealthDot.Fill = fresh
-            ? new SolidColorBrush(Color.FromRgb(0x3D, 0xC2, 0x72))
-            : new SolidColorBrush(Color.FromRgb(0xF0, 0xA0, 0x30));
         var preview = string.IsNullOrWhiteSpace(line)
             ? "(vide)"
             : line.Replace('\n', ' ').Replace('\r', ' ').Trim();
@@ -194,6 +230,7 @@ public partial class MainWindow : Window
         OcrHealthText.Text = fresh
             ? $"Killfeed : {preview}"
             : $"Killfeed : dernière lecture {FormatAgeShort(age)}";
+        UpdateStatusTooltip();
     }
 
     public void RunKillfeedCalibration()

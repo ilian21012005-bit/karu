@@ -112,17 +112,23 @@ public partial class App : System.Windows.Application
         _tray.ExitRequested += ExitApp;
 
         _window.Show();
-        RunOnboardingIfNeeded();
 
         var ffmpeg = FfmpegLocator.Find();
         AppLog.Write("ffmpeg=" + (ffmpeg ?? "(null)"));
         if (ffmpeg is null)
         {
-            _window.SetStatus("FFmpeg introuvable. Place ffmpeg.exe dans tools/ffmpeg.");
+            _window.SetStatus("Encodeur introuvable");
+            MessageBox.Show(
+                _window,
+                "Le composant vidéo nécessaire à la capture est absent. Il est normalement inclus avec Karu. Réinstalle l’application depuis la page Releases officielle, puis relance-la.\n\nTu peux quand même terminer la configuration, mais la capture ne démarrera pas avant la réinstallation.",
+                "Karu — composant manquant",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            RunOnboardingIfNeeded();
             return;
         }
 
-        _window.SetStatus("Détection NVENC…");
+        _window.SetStatus("Vérification du PC…");
 
         _ = Task.Run(() =>
         {
@@ -136,7 +142,9 @@ public partial class App : System.Windows.Application
                 AppLog.Write("nvenc probe: " + ex);
                 Dispatcher.BeginInvoke(() =>
                 {
-                    _window?.SetStatus("Erreur NVENC : " + ex.Message);
+                    _window?.SetStatus("Encodeur indisponible");
+                    ShowNvencRequirementNotice();
+                    RunOnboardingIfNeeded();
                 });
                 return;
             }
@@ -150,9 +158,13 @@ public partial class App : System.Windows.Application
         AppLog.Write("nvenc=" + probe.Ok + " " + probe.Message);
         if (!probe.Ok)
         {
-            _window?.SetStatus(probe.Message);
+            _window?.SetStatus("Encodeur indisponible");
+            ShowNvencRequirementNotice();
+            RunOnboardingIfNeeded();
             return;
         }
+
+        RunOnboardingIfNeeded();
 
         try
         {
@@ -226,7 +238,7 @@ public partial class App : System.Windows.Application
         catch (Exception ex)
         {
             AppLog.Write("buffer start failed: " + ex);
-            _window?.SetStatus("Erreur NVENC : " + ex.Message);
+            _window?.SetStatus("Encodeur indisponible");
         }
     }
 
@@ -304,7 +316,7 @@ public partial class App : System.Windows.Application
                 catch (Exception ex)
                 {
                     Dispatcher.BeginInvoke(() =>
-                        _window?.SetStatus("Erreur NVENC : " + ex.Message));
+                        _window?.SetStatus("Encodeur indisponible"));
                     AppLog.Write("capture start: " + ex);
                 }
             }
@@ -398,6 +410,17 @@ public partial class App : System.Windows.Application
                 // ignore
             }
         }
+    }
+
+    private void ShowNvencRequirementNotice()
+    {
+        if (_window is null) return;
+        MessageBox.Show(
+            _window,
+            "Karu n’a pas trouvé l’encodeur NVIDIA requis. Vérifie que ton PC possède une carte NVIDIA compatible et installe son pilote récent, puis relance Karu.\n\nTu peux quand même terminer la configuration, mais la capture ne démarrera pas tant que NVENC n’est pas disponible.",
+            "Karu — vérification du PC",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
     }
 
     private async Task CheckUpdatesInBackgroundAsync()

@@ -170,6 +170,42 @@ public partial class MainWindow : Window
     public event Action<IReadOnlyList<string>>? MissingThumbnailsRequested;
     public event Action<string>? HeroThumbnailRequested;
 
+    /// <summary>
+    /// ListBox mange la molette même avec scroll désactivé — on la renvoie au ScrollViewer parent.
+    /// </summary>
+    private void ClipList_OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (e.Handled)
+        {
+            return;
+        }
+
+        var scroll = LibraryScrollViewer
+                     ?? FindVisualParent<ScrollViewer>(sender as DependencyObject);
+        if (scroll is null)
+        {
+            return;
+        }
+
+        scroll.ScrollToVerticalOffset(scroll.VerticalOffset - e.Delta);
+        e.Handled = true;
+    }
+
+    private static T? FindVisualParent<T>(DependencyObject? child) where T : DependencyObject
+    {
+        while (child is not null)
+        {
+            if (child is T match)
+            {
+                return match;
+            }
+
+            child = VisualTreeHelper.GetParent(child);
+        }
+
+        return null;
+    }
+
     public void SetStatus(string status)
     {
         StatusText.Text = status;

@@ -1,6 +1,7 @@
 <Application x:Class="Karu.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Karu.App"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
         <!-- Couleurs par défaut = Riot rouge & noir (écrasées au runtime par ThemeService) -->
@@ -192,6 +193,65 @@
                     <Setter Property="Cursor" Value="Arrow"/>
                 </Trigger>
             </Style.Triggers>
+        </Style>
+
+        <!-- Petit « i » à côté d’un réglage : le texte est dans InfoHint.Hint -->
+        <Style TargetType="{x:Type local:InfoHint}">
+            <Setter Property="Width" Value="16"/>
+            <Setter Property="Height" Value="16"/>
+            <Setter Property="MinWidth" Value="16"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="6,0,0,0"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Cursor" Value="Help"/>
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
+            <Setter Property="FontFamily" Value="Georgia, Times New Roman, Segoe UI"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontStyle" Value="Italic"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Content" Value="i"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="ToolTipService.InitialShowDelay" Value="200"/>
+            <Setter Property="ToolTipService.ShowDuration" Value="30000"/>
+            <Setter Property="ToolTipService.BetweenShowDelay" Value="80"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type local:InfoHint}">
+                        <Border x:Name="Bd"
+                                Width="16"
+                                Height="16"
+                                CornerRadius="8"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="0,-1,0,0"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SettingInfoTip" TargetType="ToolTip">
+            <Setter Property="Background" Value="{DynamicResource PanelAltBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Placement" Value="Bottom"/>
+            <Setter Property="HasDropShadow" Value="True"/>
         </Style>
 
         <!-- AccentButton : fond accentué solide, texte blanc, effet halo lumineux au survol -->
